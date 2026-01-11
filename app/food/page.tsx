@@ -78,7 +78,7 @@ export default function FoodTrackerPage() {
       </div>
 
       {/* Date Navigation */}
-      <div className="flex items-center justify-between bg-card border border-border rounded-lg p-3">
+      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
         <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
           <ChevronLeft className="w-5 h-5" />
         </Button>
@@ -104,25 +104,25 @@ export default function FoodTrackerPage() {
               <p className="text-2xl font-bold text-primary-600">
                 {Math.round(dailyNutrients["1008"] || 0)}
               </p>
-              <p className="text-xs text-muted-foreground">Calories</p>
+              <p className="text-xs text-gray-500">Calories</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold">
                 {Math.round(dailyNutrients["1003"] || 0)}g
               </p>
-              <p className="text-xs text-muted-foreground">Protein</p>
+              <p className="text-xs text-gray-500">Protein</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold">
                 {Math.round(dailyNutrients["1005"] || 0)}g
               </p>
-              <p className="text-xs text-muted-foreground">Carbs</p>
+              <p className="text-xs text-gray-500">Carbs</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold">
                 {Math.round(dailyNutrients["1004"] || 0)}g
               </p>
-              <p className="text-xs text-muted-foreground">Fat</p>
+              <p className="text-xs text-gray-500">Fat</p>
             </div>
           </div>
 
@@ -173,7 +173,7 @@ export default function FoodTrackerPage() {
                 </CardHeader>
                 <CardContent>
                   {typeMeals.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
+                    <p className="text-sm text-gray-500 text-center py-4">
                       No {mealType} logged
                     </p>
                   ) : (
@@ -189,13 +189,13 @@ export default function FoodTrackerPage() {
                           return (
                             <li
                               key={item.id}
-                              className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                              className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0"
                             >
                               <div className="flex-1 min-w-0 mr-4">
                                 <p className="font-medium text-sm truncate">
                                   {item.food.description}
                                 </p>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-gray-500">
                                   {item.servings} serving
                                   {item.servings !== 1 ? "s" : ""}
                                 </p>
@@ -207,7 +207,7 @@ export default function FoodTrackerPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  className="h-8 w-8 text-gray-500 hover:text-destructive"
                                   onClick={() =>
                                     removeItemFromMeal(meal.id, item.id)
                                   }
@@ -346,10 +346,10 @@ export default function FoodTrackerPage() {
 function FoodTrackerSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-muted rounded-lg animate-pulse w-48" />
-      <div className="h-12 bg-muted rounded-lg animate-pulse" />
-      <div className="h-48 bg-muted rounded-lg animate-pulse" />
-      <div className="h-64 bg-muted rounded-lg animate-pulse" />
+      <div className="h-10 bg-gray-100 rounded-lg animate-pulse w-48" />
+      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-64 bg-gray-100 rounded-lg animate-pulse" />
     </div>
   );
 }

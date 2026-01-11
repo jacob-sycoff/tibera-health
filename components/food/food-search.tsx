@@ -59,7 +59,7 @@ export function FoodSearch({ onSelect, className }: FoodSearchProps) {
   return (
     <div className={cn("relative", className)}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <Input
           type="text"
           placeholder="Search foods..."
@@ -70,24 +70,24 @@ export function FoodSearch({ onSelect, className }: FoodSearchProps) {
           className="pl-9"
         />
         {loading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-500" />
         )}
       </div>
 
       {/* Search Results Dropdown */}
       {showResults && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-lg shadow-lg max-h-64 overflow-auto">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-auto">
           {results.map((food) => (
             <button
               key={food.fdcId}
               onClick={() => handleSelect(food)}
-              className="w-full px-4 py-3 text-left hover:bg-muted transition-colors border-b border-border last:border-0"
+              className="w-full px-4 py-3 text-left hover:bg-gray-100 transition-colors border-b border-gray-200 last:border-0"
             >
-              <p className="font-medium text-sm text-foreground truncate">
+              <p className="font-medium text-sm text-gray-900 truncate">
                 {food.description}
               </p>
               {food.brandOwner && (
-                <p className="text-xs text-muted-foreground truncate">
+                <p className="text-xs text-gray-500 truncate">
                   {food.brandOwner}
                 </p>
               )}
@@ -97,7 +97,7 @@ export function FoodSearch({ onSelect, className }: FoodSearchProps) {
       )}
 
       {showResults && query.length >= 2 && results.length === 0 && !loading && (
-        <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-lg shadow-lg p-4 text-center text-muted-foreground">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center text-gray-500">
           No foods found
         </div>
       )}

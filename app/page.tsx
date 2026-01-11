@@ -56,8 +56,8 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Today&apos;s Summary</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold text-gray-900">Today&apos;s Summary</h1>
+          <p className="text-gray-500">
             {new Date().toLocaleDateString("en-US", {
               weekday: "long",
               month: "long",
@@ -84,7 +84,7 @@ export default function Dashboard() {
               label={Math.round(calories).toString()}
               sublabel="kcal"
             />
-            <p className="mt-2 text-sm font-medium text-muted-foreground">Calories</p>
+            <p className="mt-2 text-sm font-medium text-gray-500">Calories</p>
           </CardContent>
         </Card>
 
@@ -99,7 +99,7 @@ export default function Dashboard() {
               sublabel={`/${goals.protein}g`}
               color="stroke-blue-500"
             />
-            <p className="mt-2 text-sm font-medium text-muted-foreground">Protein</p>
+            <p className="mt-2 text-sm font-medium text-gray-500">Protein</p>
           </CardContent>
         </Card>
 
@@ -114,7 +114,7 @@ export default function Dashboard() {
               sublabel="hours"
               color="stroke-sleep-500"
             />
-            <p className="mt-2 text-sm font-medium text-muted-foreground">Sleep</p>
+            <p className="mt-2 text-sm font-medium text-gray-500">Sleep</p>
           </CardContent>
         </Card>
       </div>
@@ -205,7 +205,7 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           {todaysMeals.length === 0 ? (
-            <div className="text-center py-6 text-muted-foreground">
+            <div className="text-center py-6 text-gray-500">
               <p>No meals logged today</p>
               <Link href="/food/log">
                 <Button variant="outline" size="sm" className="mt-2">
@@ -225,11 +225,11 @@ export default function Dashboard() {
                 return (
                   <li
                     key={meal.id}
-                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                    className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0"
                   >
                     <div>
                       <p className="font-medium capitalize">{meal.mealType}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-gray-500">
                         {meal.items.length} item{meal.items.length !== 1 ? "s" : ""}
                       </p>
                     </div>
@@ -254,7 +254,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="font-medium">Sleep</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-gray-500">
                   {todaysSleep ? `${sleepHours.toFixed(1)}h logged` : "Not logged"}
                 </p>
               </div>
@@ -270,7 +270,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="font-medium">Symptoms</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-gray-500">
                   {todaysSymptoms.length} logged today
                 </p>
               </div>
@@ -286,7 +286,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="font-medium">Supplements</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-gray-500">
                   {todaysSupplements.length} taken today
                 </p>
               </div>
@@ -302,7 +302,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="font-medium">Settings</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-gray-500">
                   {profile?.conditions[0] !== "none"
                     ? profile?.conditions.length + " conditions"
                     : "Set up profile"}
@@ -319,14 +319,14 @@ export default function Dashboard() {
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-16 bg-muted rounded-lg animate-pulse" />
+      <div className="h-16 bg-gray-100 rounded-lg animate-pulse" />
       <div className="grid grid-cols-3 gap-4">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
+          <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
         ))}
       </div>
-      <div className="h-48 bg-muted rounded-lg animate-pulse" />
-      <div className="h-48 bg-muted rounded-lg animate-pulse" />
+      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
     </div>
   );
 }

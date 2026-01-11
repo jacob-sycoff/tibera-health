@@ -33,17 +33,17 @@ export function NutrientBar({
   return (
     <div className={cn("space-y-1", className)}>
       <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-foreground flex items-center gap-1">
+        <span className="font-medium text-gray-900 flex items-center gap-1">
           {name}
           {isLow && showWarning && (
             <AlertTriangle className="w-3 h-3 text-warning-500" />
           )}
         </span>
-        <span className="text-muted-foreground">
+        <span className="text-gray-500">
           {Math.round(value)}{unit} / {max}{unit}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+      <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
         <div
           className={cn(
             "h-full rounded-full transition-all duration-500",
@@ -52,7 +52,7 @@ export function NutrientBar({
           style={{ width: `${Math.min(percentage, 100)}%` }}
         />
       </div>
-      <div className="text-xs text-muted-foreground text-right">
+      <div className="text-xs text-gray-500 text-right">
         {Math.round(percentage)}%
       </div>
     </div>

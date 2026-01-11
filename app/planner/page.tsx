@@ -92,7 +92,7 @@ export default function MealPlannerPage() {
       </div>
 
       {/* Week Navigation */}
-      <div className="flex items-center justify-between bg-card border border-border rounded-lg p-3">
+      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
         <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)}>
           <ChevronLeft className="w-5 h-5" />
         </Button>
@@ -133,7 +133,7 @@ export default function MealPlannerPage() {
                         weekday: "short",
                       })}
                     </span>
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-sm text-gray-500">
                       {date.toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
@@ -148,7 +148,7 @@ export default function MealPlannerPage() {
                           "text-sm",
                           calories >= goals.calories
                             ? "text-primary-600"
-                            : "text-muted-foreground"
+                            : "text-gray-500"
                         )}
                       >
                         {Math.round(calories)} kcal
@@ -164,7 +164,7 @@ export default function MealPlannerPage() {
               </CardHeader>
               <CardContent className="pt-0">
                 {dayMeals.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-2">
+                  <p className="text-sm text-gray-500 text-center py-2">
                     No meals planned
                   </p>
                 ) : (
@@ -188,10 +188,10 @@ export default function MealPlannerPage() {
                           key={mealType}
                           className={cn(
                             "text-center p-2 rounded-lg",
-                            mealForType ? "bg-primary-50" : "bg-muted"
+                            mealForType ? "bg-primary-50" : "bg-gray-100"
                           )}
                         >
-                          <p className="text-xs font-medium text-muted-foreground mb-1">
+                          <p className="text-xs font-medium text-gray-500 mb-1">
                             {MEAL_LABELS[mealType]}
                           </p>
                           {mealForType ? (
@@ -199,7 +199,7 @@ export default function MealPlannerPage() {
                               {Math.round(mealCalories || 0)}
                             </p>
                           ) : (
-                            <p className="text-xs text-muted-foreground">-</p>
+                            <p className="text-xs text-gray-500">-</p>
                           )}
                         </div>
                       );
@@ -227,7 +227,7 @@ export default function MealPlannerPage() {
 
             if (weekMeals.length === 0) {
               return (
-                <p className="text-center text-muted-foreground py-4">
+                <p className="text-center text-gray-500 py-4">
                   No meals logged this week
                 </p>
               );
@@ -239,23 +239,23 @@ export default function MealPlannerPage() {
 
             return (
               <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-4 bg-muted rounded-lg">
+                <div className="text-center p-4 bg-gray-100 rounded-lg">
                   <p className="text-2xl font-bold">
                     {Math.round(totalNutrients["1008"] || 0)}
                   </p>
-                  <p className="text-xs text-muted-foreground">Total Calories</p>
+                  <p className="text-xs text-gray-500">Total Calories</p>
                 </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
+                <div className="text-center p-4 bg-gray-100 rounded-lg">
                   <p className="text-2xl font-bold">{Math.round(avgCalories)}</p>
-                  <p className="text-xs text-muted-foreground">Avg/Day</p>
+                  <p className="text-xs text-gray-500">Avg/Day</p>
                 </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
+                <div className="text-center p-4 bg-gray-100 rounded-lg">
                   <p className="text-2xl font-bold">{weekMeals.length}</p>
-                  <p className="text-xs text-muted-foreground">Total Meals</p>
+                  <p className="text-xs text-gray-500">Total Meals</p>
                 </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
+                <div className="text-center p-4 bg-gray-100 rounded-lg">
                   <p className="text-2xl font-bold">{daysWithMeals}/7</p>
-                  <p className="text-xs text-muted-foreground">Days Tracked</p>
+                  <p className="text-xs text-gray-500">Days Tracked</p>
                 </div>
               </div>
             );
@@ -269,10 +269,10 @@ export default function MealPlannerPage() {
 function PlannerSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-muted rounded-lg animate-pulse w-48" />
-      <div className="h-12 bg-muted rounded-lg animate-pulse" />
+      <div className="h-10 bg-gray-100 rounded-lg animate-pulse w-48" />
+      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
       {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-        <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />
+        <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />
       ))}
     </div>
   );

@@ -110,7 +110,7 @@ export default function LogFoodPage() {
       <Card>
         <CardContent className="pt-4 space-y-4">
           <div>
-            <label className="text-sm font-medium text-muted-foreground">
+            <label className="text-sm font-medium text-gray-500">
               Date
             </label>
             <Input
@@ -123,7 +123,7 @@ export default function LogFoodPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-muted-foreground">
+            <label className="text-sm font-medium text-gray-500">
               Meal Type
             </label>
             <div className="grid grid-cols-4 gap-2 mt-1">
@@ -135,7 +135,7 @@ export default function LogFoodPage() {
                     "py-2 px-3 rounded-lg text-sm font-medium transition-colors",
                     selectedMealType === type.value
                       ? "bg-primary-600 text-white"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      : "bg-gray-100 text-gray-500 hover:bg-gray-100/80"
                   )}
                 >
                   {type.label}
@@ -154,7 +154,7 @@ export default function LogFoodPage() {
         <CardContent>
           <FoodSearch onSelect={handleFoodSelect} />
           {loading && (
-            <p className="text-sm text-muted-foreground mt-2">Loading food details...</p>
+            <p className="text-sm text-gray-500 mt-2">Loading food details...</p>
           )}
         </CardContent>
       </Card>
@@ -181,13 +181,13 @@ export default function LogFoodPage() {
                 return (
                   <li
                     key={index}
-                    className="flex items-center gap-3 py-3 border-b border-border last:border-0"
+                    className="flex items-center gap-3 py-3 border-b border-gray-200 last:border-0"
                   >
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">
                         {item.food.description}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-gray-500">
                         {Math.round(itemCalories)} kcal
                       </p>
                     </div>

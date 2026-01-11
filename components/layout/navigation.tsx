@@ -32,7 +32,7 @@ export function Navigation({ className }: NavigationProps) {
   return (
     <nav
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border",
+        "fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200",
         className
       )}
     >
@@ -50,7 +50,7 @@ export function Navigation({ className }: NavigationProps) {
                 "flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors",
                 isActive
                   ? "text-primary-600"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-gray-500 hover:text-gray-900"
               )}
             >
               <Icon className="w-5 h-5" />

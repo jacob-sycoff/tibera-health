@@ -37,7 +37,7 @@ export function ProgressRing({
           cy={size / 2}
           r={radius}
           strokeWidth={strokeWidth}
-          className="stroke-muted fill-none"
+          className="stroke-gray-200 fill-none"
         />
         {/* Progress circle */}
         <circle
@@ -54,10 +54,10 @@ export function ProgressRing({
       {/* Center content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         {label && (
-          <span className="text-2xl font-bold text-foreground">{label}</span>
+          <span className="text-2xl font-bold text-gray-900">{label}</span>
         )}
         {sublabel && (
-          <span className="text-xs text-muted-foreground">{sublabel}</span>
+          <span className="text-xs text-gray-500">{sublabel}</span>
         )}
       </div>
     </div>

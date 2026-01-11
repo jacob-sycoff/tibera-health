@@ -1,68 +1,136 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   ShoppingCart,
   Plus,
   Trash2,
   Check,
-  MoreVertical,
   ListPlus,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  useShoppingStore,
-  CATEGORY_LABELS,
-  CATEGORY_ORDER,
-} from "@/lib/stores/shopping";
+  useShoppingLists,
+  useCreateShoppingList,
+  useDeleteShoppingList,
+  useUpdateShoppingList,
+  useAddShoppingItem,
+  useToggleShoppingItem,
+  useDeleteShoppingItem,
+  useClearCheckedItems,
+} from "@/lib/hooks";
 import type { ShoppingCategory, ShoppingItem } from "@/types";
 import { cn } from "@/lib/utils/cn";
 
+// Database types
+interface DatabaseShoppingItem {
+  id: string;
+  list_id: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  category: string;
+  is_checked: boolean;
+  from_meal_plan: boolean;
+  meal_plan_id: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+interface DatabaseShoppingList {
+  id: string;
+  user_id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  shopping_items: DatabaseShoppingItem[];
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  produce: "Produce",
+  dairy: "Dairy",
+  meat: "Meat & Seafood",
+  grains: "Grains & Bakery",
+  frozen: "Frozen",
+  canned: "Canned & Packaged",
+  snacks: "Snacks",
+  beverages: "Beverages",
+  household: "Household",
+  other: "Other",
+};
+
+const CATEGORY_ORDER: string[] = [
+  "produce",
+  "dairy",
+  "meat",
+  "grains",
+  "frozen",
+  "canned",
+  "snacks",
+  "beverages",
+  "household",
+  "other",
+];
+
 export default function ShoppingListPage() {
-  const [mounted, setMounted] = useState(false);
   const [newItemName, setNewItemName] = useState("");
-  const [newItemCategory, setNewItemCategory] =
-    useState<ShoppingCategory>("other");
+  const [newItemCategory, setNewItemCategory] = useState<string>("other");
   const [showNewListForm, setShowNewListForm] = useState(false);
   const [newListName, setNewListName] = useState("");
 
-  const {
-    lists,
-    activeListId,
-    createList,
-    deleteList,
-    setActiveList,
-    addItem,
-    deleteItem,
-    toggleItemChecked,
-    clearCheckedItems,
-    getActiveList,
-  } = useShoppingStore();
+  // Supabase hooks
+  const { data: lists = [], isLoading } = useShoppingLists();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Mutations
+  const createList = useCreateShoppingList();
+  const deleteList = useDeleteShoppingList();
+  const updateList = useUpdateShoppingList();
+  const addItem = useAddShoppingItem();
+  const toggleItem = useToggleShoppingItem();
+  const deleteItem = useDeleteShoppingItem();
+  const clearChecked = useClearCheckedItems();
 
-  if (!mounted) return <ShoppingSkeleton />;
+  // Find the active list, or default to the first list
+  const activeList = useMemo(() => {
+    if (lists.length === 0) return null;
+    const active = lists.find((l: DatabaseShoppingList) => l.is_active);
+    return active || lists[0];
+  }, [lists]);
 
-  const activeList = getActiveList();
+  const activeListId = activeList?.id || null;
+
+  if (isLoading) return <ShoppingSkeleton />;
 
   const handleCreateList = () => {
     if (!newListName.trim()) return;
-    createList(newListName.trim());
+    createList.mutate({
+      name: newListName.trim(),
+      setActive: true,
+    });
     setNewListName("");
     setShowNewListForm(false);
   };
 
+  const handleSetActiveList = (listId: string) => {
+    updateList.mutate({
+      id: listId,
+      updates: { is_active: true },
+    });
+  };
+
   const handleAddItem = () => {
     if (!newItemName.trim() || !activeListId) return;
-    addItem(activeListId, {
-      name: newItemName.trim(),
-      category: newItemCategory,
-      checked: false,
+    addItem.mutate({
+      listId: activeListId,
+      item: {
+        name: newItemName.trim(),
+        category: newItemCategory,
+      },
     });
     setNewItemName("");
   };
@@ -70,15 +138,15 @@ export default function ShoppingListPage() {
   // Group items by category
   const groupedItems = activeList
     ? CATEGORY_ORDER.reduce((acc, category) => {
-        acc[category] = activeList.items.filter(
-          (item) => item.category === category
+        acc[category] = (activeList.shopping_items || []).filter(
+          (item: DatabaseShoppingItem) => item.category === category
         );
         return acc;
-      }, {} as Record<ShoppingCategory, ShoppingItem[]>)
+      }, {} as Record<string, DatabaseShoppingItem[]>)
     : {};
 
-  const uncheckedCount = activeList?.items.filter((i) => !i.checked).length || 0;
-  const checkedCount = activeList?.items.filter((i) => i.checked).length || 0;
+  const uncheckedCount = activeList?.shopping_items?.filter((i: DatabaseShoppingItem) => !i.is_checked).length || 0;
+  const checkedCount = activeList?.shopping_items?.filter((i: DatabaseShoppingItem) => i.is_checked).length || 0;
 
   return (
     <div className="space-y-6">
@@ -99,20 +167,20 @@ export default function ShoppingListPage() {
       {/* List Selector */}
       {lists.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-2">
-          {lists.map((list) => (
+          {lists.map((list: DatabaseShoppingList) => (
             <button
               key={list.id}
-              onClick={() => setActiveList(list.id)}
+              onClick={() => handleSetActiveList(list.id)}
               className={cn(
                 "px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
                 activeListId === list.id
                   ? "bg-primary-600 text-white"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  : "bg-gray-100 text-gray-500 hover:bg-gray-100/80"
               )}
             >
               {list.name}
               <Badge variant="secondary" className="ml-2">
-                {list.items.filter((i) => !i.checked).length}
+                {(list.shopping_items || []).filter((i: DatabaseShoppingItem) => !i.is_checked).length}
               </Badge>
             </button>
           ))}
@@ -136,10 +204,8 @@ export default function ShoppingListPage() {
                 />
                 <select
                   value={newItemCategory}
-                  onChange={(e) =>
-                    setNewItemCategory(e.target.value as ShoppingCategory)
-                  }
-                  className="px-3 py-2 rounded-md border border-input bg-background text-sm"
+                  onChange={(e) => setNewItemCategory(e.target.value)}
+                  className="px-3 py-2 rounded-md border border-gray-300 bg-white text-sm"
                 >
                   {CATEGORY_ORDER.map((cat) => (
                     <option key={cat} value={cat}>
@@ -147,8 +213,15 @@ export default function ShoppingListPage() {
                     </option>
                   ))}
                 </select>
-                <Button onClick={handleAddItem} disabled={!newItemName.trim()}>
-                  <Plus className="w-4 h-4" />
+                <Button
+                  onClick={handleAddItem}
+                  disabled={!newItemName.trim() || addItem.isPending}
+                >
+                  {addItem.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
                 </Button>
               </div>
             </CardContent>
@@ -156,15 +229,19 @@ export default function ShoppingListPage() {
 
           {/* Progress */}
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
+            <span className="text-gray-500">
               {uncheckedCount} items remaining
             </span>
             {checkedCount > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => clearCheckedItems(activeListId!)}
+                onClick={() => clearChecked.mutate(activeListId!)}
+                disabled={clearChecked.isPending}
               >
+                {clearChecked.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                ) : null}
                 Clear checked ({checkedCount})
               </Button>
             )}
@@ -179,62 +256,79 @@ export default function ShoppingListPage() {
               return (
                 <Card key={category}>
                   <CardHeader className="py-3 pb-0">
-                    <CardTitle className="text-sm text-muted-foreground">
+                    <CardTitle className="text-sm text-gray-500">
                       {CATEGORY_LABELS[category]}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pt-2">
                     <ul className="space-y-1">
-                      {items.map((item) => (
-                        <li
-                          key={item.id}
-                          className="flex items-center gap-3 py-2"
-                        >
-                          <button
-                            onClick={() =>
-                              toggleItemChecked(activeListId!, item.id)
-                            }
-                            className={cn(
-                              "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors",
-                              item.checked
-                                ? "bg-primary-600 border-primary-600"
-                                : "border-muted-foreground"
-                            )}
+                      {items
+                        .sort((a: DatabaseShoppingItem, b: DatabaseShoppingItem) => a.sort_order - b.sort_order)
+                        .map((item: DatabaseShoppingItem) => (
+                          <li
+                            key={item.id}
+                            className="flex items-center gap-3 py-2"
                           >
-                            {item.checked && (
-                              <Check className="w-4 h-4 text-white" />
-                            )}
-                          </button>
-                          <span
-                            className={cn(
-                              "flex-1",
-                              item.checked &&
-                                "line-through text-muted-foreground"
-                            )}
-                          >
-                            {item.name}
-                            {item.quantity && (
-                              <span className="text-muted-foreground ml-1">
-                                ({item.quantity} {item.unit})
-                              </span>
-                            )}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => deleteItem(activeListId!, item.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </li>
-                      ))}
+                            <button
+                              onClick={() => toggleItem.mutate(item.id)}
+                              disabled={toggleItem.isPending}
+                              className={cn(
+                                "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors",
+                                item.is_checked
+                                  ? "bg-primary-600 border-primary-600"
+                                  : "border-gray-500"
+                              )}
+                            >
+                              {item.is_checked && (
+                                <Check className="w-4 h-4 text-white" />
+                              )}
+                            </button>
+                            <span
+                              className={cn(
+                                "flex-1",
+                                item.is_checked &&
+                                  "line-through text-gray-500"
+                              )}
+                            >
+                              {item.name}
+                              {item.quantity && (
+                                <span className="text-gray-500 ml-1">
+                                  ({item.quantity} {item.unit})
+                                </span>
+                              )}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-gray-500 hover:text-destructive"
+                              onClick={() => deleteItem.mutate(item.id)}
+                              disabled={deleteItem.isPending}
+                            >
+                              {deleteItem.isPending ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </li>
+                        ))}
                     </ul>
                   </CardContent>
                 </Card>
               );
             })}
           </div>
+
+          {/* Empty state for list with no items */}
+          {(!activeList.shopping_items || activeList.shopping_items.length === 0) && (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <ShoppingCart className="w-10 h-10 mx-auto text-gray-500 mb-3" />
+                <p className="text-gray-500">No items in this list yet</p>
+                <p className="text-sm text-gray-400 mt-1">Add items using the form above</p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Delete List */}
           <div className="pt-4">
@@ -243,11 +337,16 @@ export default function ShoppingListPage() {
               className="w-full text-destructive hover:text-destructive"
               onClick={() => {
                 if (confirm("Delete this shopping list?")) {
-                  deleteList(activeListId!);
+                  deleteList.mutate(activeListId!);
                 }
               }}
+              disabled={deleteList.isPending}
             >
-              <Trash2 className="w-4 h-4 mr-2" />
+              {deleteList.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
               Delete List
             </Button>
           </div>
@@ -255,8 +354,8 @@ export default function ShoppingListPage() {
       ) : (
         <Card>
           <CardContent className="py-12 text-center">
-            <ShoppingCart className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4">
+            <ShoppingCart className="w-12 h-12 mx-auto text-gray-500 mb-4" />
+            <p className="text-gray-500 mb-4">
               No shopping lists yet
             </p>
             <Button onClick={() => setShowNewListForm(true)}>
@@ -297,8 +396,11 @@ export default function ShoppingListPage() {
                 <Button
                   className="flex-1"
                   onClick={handleCreateList}
-                  disabled={!newListName.trim()}
+                  disabled={!newListName.trim() || createList.isPending}
                 >
+                  {createList.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
                   Create
                 </Button>
               </div>
@@ -313,9 +415,15 @@ export default function ShoppingListPage() {
 function ShoppingSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-muted rounded-lg animate-pulse w-48" />
-      <div className="h-12 bg-muted rounded-lg animate-pulse" />
-      <div className="h-64 bg-muted rounded-lg animate-pulse" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gray-100 animate-pulse" />
+          <div className="h-8 w-36 bg-gray-100 rounded animate-pulse" />
+        </div>
+        <div className="h-10 w-28 bg-gray-100 rounded animate-pulse" />
+      </div>
+      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-64 bg-gray-100 rounded-lg animate-pulse" />
     </div>
   );
 }
