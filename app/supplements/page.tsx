@@ -2,7 +2,6 @@
 
 import { useState, useRef } from "react";
 import {
-  Pill,
   Plus,
   ChevronLeft,
   ChevronRight,
@@ -15,9 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   Shield,
-  Leaf,
-  FlaskConical,
-  Info,
+  Pill,
   X,
   Loader2,
   Upload,
@@ -33,9 +30,8 @@ import {
   useCreateSupplementLog,
   useDeleteSupplementLog,
   useSupplementsList,
+  useCreateUserSupplement,
 } from "@/lib/hooks";
-import { SUPPLEMENTS_LIBRARY } from "@/lib/stores/supplements";
-import type { Supplement } from "@/types";
 import type {
   SupplementIngredient,
   NutrientForm,
@@ -43,6 +39,8 @@ import type {
 } from "@/types/supplements";
 import { FORM_LABELS, SOURCE_LABELS } from "@/types/supplements";
 import { cn } from "@/lib/utils/cn";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   scanSupplementLabel,
   type ScannedSupplement,
@@ -54,6 +52,51 @@ import {
 } from "@/lib/api/url-importer";
 import { ScannedSupplementReview } from "@/components/supplements/scanned-supplement-review";
 import { ScanProgressDisplay } from "@/components/supplements/scan-progress";
+import { ManualEntryForm } from "@/components/supplements/manual-entry-form";
+import { IngredientList } from "@/components/supplements/ingredient-list";
+import { SupplementCard } from "@/components/supplements/supplement-card";
+import { SupplementDetailModal } from "@/components/supplements/supplement-detail-modal";
+import { QuickLogModal } from "@/components/supplements/quick-log-modal";
+import { useToast } from "@/components/ui/toast";
+
+// Type for dietary attributes stored in database
+interface DatabaseDietaryAttributes {
+  thirdPartyTested?: boolean;
+  thirdPartyTesters?: string[];
+  cgmpCertified?: boolean;
+  heavyMetalsTested?: boolean;
+  vegetarian?: boolean;
+  vegan?: boolean;
+  meatFree?: boolean;
+  porkFree?: boolean;
+  shellfishFree?: boolean;
+  fishFree?: boolean;
+  gelatinFree?: boolean;
+  animalGelatinFree?: boolean;
+  usesVegetarianCapsule?: boolean;
+  usesFishGelatin?: boolean;
+  usesPorkGelatin?: boolean;
+  usesBeefGelatin?: boolean;
+  capsuleType?: string;
+  kosher?: boolean;
+  kosherCertifier?: string;
+  halal?: boolean;
+  halalCertifier?: string;
+  glutenFree?: boolean;
+  dairyFree?: boolean;
+  soyFree?: boolean;
+  nutFree?: boolean;
+  eggFree?: boolean;
+  cornFree?: boolean;
+  nonGMO?: boolean;
+  organic?: boolean;
+  organicCertifier?: string;
+  sustainablySourced?: boolean;
+  pregnancySafe?: boolean;
+  nursingSafe?: boolean;
+  madeInUSA?: boolean;
+  countryOfOrigin?: string;
+}
 
 // Type for database supplement
 interface DatabaseSupplement {
@@ -66,6 +109,7 @@ interface DatabaseSupplement {
   other_ingredients: string[] | null;
   allergens: string[] | null;
   certifications: string[] | null;
+  attributes: DatabaseDietaryAttributes | null;
   is_verified: boolean;
   supplement_ingredients: Array<{
     id: string;
@@ -96,14 +140,27 @@ export default function SupplementsPage() {
     new Date().toISOString().split("T")[0]
   );
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedSupplement, setSelectedSupplement] = useState<Supplement | null>(
-    null
-  );
   const [selectedDetailedSupplement, setSelectedDetailedSupplement] =
     useState<DatabaseSupplement | null>(null);
-  const [dosage, setDosage] = useState("");
-  const [notes, setNotes] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [kosherFilter, setKosherFilter] = useState<string>("all"); // "all", "any", or specific certifier
+  const [dietaryFilters, setDietaryFilters] = useState<{
+    thirdPartyTested: boolean;
+    vegan: boolean;
+    vegetarian: boolean;
+    glutenFree: boolean;
+    halal: boolean;
+    nonGMO: boolean;
+  }>({
+    thirdPartyTested: false,
+    vegan: false,
+    vegetarian: false,
+    glutenFree: false,
+    halal: false,
+    nonGMO: false,
+  });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<"browse" | "photo" | "url" | "manual">(
     "browse"
@@ -128,6 +185,8 @@ export default function SupplementsPage() {
   const { data: databaseSupplements = [], isLoading: supplementsLoading } = useSupplementsList();
   const createLog = useCreateSupplementLog();
   const deleteLog = useDeleteSupplementLog();
+  const createSupplement = useCreateUserSupplement();
+  const toast = useToast();
 
   const navigateDate = (direction: number) => {
     const date = new Date(selectedDate);
@@ -137,52 +196,92 @@ export default function SupplementsPage() {
 
   const isToday = selectedDate === new Date().toISOString().split("T")[0];
 
-  // Filter supplements by search
-  const filteredSupplements = searchQuery
-    ? databaseSupplements.filter(
-        (s) =>
-          s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.brand?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : databaseSupplements;
+  const availableTypes = Array.from(
+    new Set(databaseSupplements.map((s) => s.type).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
 
-  const handleSelectSupplement = (supplement: Supplement) => {
-    setSelectedSupplement(supplement);
-    setDosage(supplement.recommendedDosage?.toString() || "");
-    setNotes("");
-  };
+  // Get unique kosher certifiers from supplements
+  const availableKosherCertifiers = Array.from(
+    new Set(
+      databaseSupplements
+        .map((s) => s.attributes?.kosherCertifier)
+        .filter((c): c is string => Boolean(c))
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
-  const handleLogSupplement = () => {
-    if (!selectedSupplement || !dosage) return;
-
-    createLog.mutate({
-      supplement_name: selectedSupplement.name,
-      dosage: parseFloat(dosage),
-      unit: selectedSupplement.dosageUnit,
-      logged_at: new Date(`${selectedDate}T${new Date().toTimeString().slice(0, 5)}`).toISOString(),
-      notes: notes || undefined,
+  // Filter supplements by search + type + dietary attributes
+  const filteredSupplements = databaseSupplements
+    .filter((s) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.brand?.toLowerCase().includes(q)
+      );
+    })
+    .filter((s) => (typeFilter === "all" ? true : s.type === typeFilter))
+    .filter((s) => {
+      // Kosher filter
+      if (kosherFilter === "all") return true;
+      if (kosherFilter === "any") return s.attributes?.kosher === true;
+      // Specific certifier
+      return s.attributes?.kosherCertifier === kosherFilter;
+    })
+    .filter((s) => {
+      // Dietary filters (must match all selected filters)
+      const attrs = s.attributes;
+      if (dietaryFilters.thirdPartyTested && !attrs?.thirdPartyTested) return false;
+      if (dietaryFilters.vegan && !attrs?.vegan) return false;
+      if (dietaryFilters.vegetarian && !attrs?.vegetarian) return false;
+      if (dietaryFilters.glutenFree && !attrs?.glutenFree) return false;
+      if (dietaryFilters.halal && !attrs?.halal) return false;
+      if (dietaryFilters.nonGMO && !attrs?.nonGMO) return false;
+      return true;
     });
-
-    setSelectedSupplement(null);
-    setShowAddForm(false);
-  };
 
   const handleLogDetailedSupplement = (supplement: DatabaseSupplement) => {
-    createLog.mutate({
-      supplement_id: supplement.id,
-      supplement_name: `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`,
-      dosage: 1,
-      unit: supplement.serving_size || "serving",
-      notes: `Detailed supplement with ${supplement.supplement_ingredients?.length || 0} nutrients`,
-    });
+    const supplementName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
+    createLog.mutate(
+      {
+        supplement_id: supplement.id,
+        supplement_name: supplementName,
+        dosage: 1,
+        unit: supplement.serving_size || "serving",
+        notes: supplement.supplement_ingredients?.length
+          ? `${supplement.supplement_ingredients.length} nutrients`
+          : undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`${supplement.name} logged`);
+        },
+        onError: (error) => {
+          console.error("Failed to log supplement:", error);
+          toast.error("Failed to log supplement");
+        },
+      }
+    );
   };
 
-  const quickLog = (supplement: Supplement) => {
-    createLog.mutate({
-      supplement_name: supplement.name,
-      dosage: supplement.recommendedDosage || 1,
-      unit: supplement.dosageUnit,
-    });
+  const quickLog = (supplement: Pick<DatabaseSupplement, "id" | "name" | "brand" | "serving_size">) => {
+    const supplementName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
+    createLog.mutate(
+      {
+        supplement_id: supplement.id,
+        supplement_name: supplementName,
+        dosage: 1,
+        unit: supplement.serving_size || "serving",
+      },
+      {
+        onSuccess: () => {
+          toast.success(`${supplement.name} logged`);
+        },
+        onError: (error) => {
+          console.error("Failed to log supplement:", error);
+          toast.error("Failed to log supplement");
+        },
+      }
+    );
   };
 
   const handleDeleteLog = (id: string) => {
@@ -239,24 +338,62 @@ export default function SupplementsPage() {
   };
 
   const handleScanConfirm = async (data: ScannedSupplement) => {
-    // Log the scanned supplement
     const supplementName = data.brand ? `${data.brand} ${data.name}` : data.name;
 
-    createLog.mutate({
-      supplement_name: supplementName,
-      dosage: 1,
-      unit: data.servingSize || "serving",
-      notes: `Imported supplement with ${data.ingredients.length} ingredients: ${data.ingredients.slice(0, 3).map(i => i.name).join(", ")}${data.ingredients.length > 3 ? "..." : ""}`,
-    });
+    try {
+      // Save supplement to database first
+      // Category is already set in the review modal (user can edit it there)
+      const newSupplement = await createSupplement.mutateAsync({
+        name: data.name,
+        brand: data.brand || undefined,
+        type: data.category || "other",
+        serving_size: data.servingSize || "1 serving",
+        servings_per_container: data.servingsPerContainer || undefined,
+        other_ingredients: data.otherIngredients.length > 0 ? data.otherIngredients : undefined,
+        allergens: data.allergens.length > 0 ? data.allergens : undefined,
+        certifications: data.certifications.length > 0 ? data.certifications : undefined,
+        // Store dietary attributes (third-party testing, kosher, halal, vegan, gelatin type, etc.)
+        attributes: (data.dietaryAttributes || {}) as Record<string, unknown>,
+        ingredients: data.ingredients.map((ing) => ({
+          nutrient_name: ing.name,
+          amount: ing.amount,
+          unit: ing.unit,
+          daily_value_percent: ing.dailyValue,
+          form: ing.form,
+        })),
+      });
 
-    // Reset scanning state
-    setScannedData(null);
-    setPreviewImage(null);
-    setScanError(null);
-    // Reset URL import state
-    setUrlInput("");
-    setImportError(null);
-    setAddMode("browse");
+      // Then create log entry with the supplement ID
+      createLog.mutate({
+        supplement_id: newSupplement.id,
+        supplement_name: supplementName,
+        dosage: 1,
+        unit: data.servingSize || "serving",
+      });
+
+      // Show success toast
+      toast.success(`${supplementName} saved and logged`);
+
+      // Reset all state
+      setScannedData(null);
+      setPreviewImage(null);
+      setScanError(null);
+      setUrlInput("");
+      setImportError(null);
+      setAddMode("browse");
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string; details?: string };
+      console.error("Failed to save supplement:", {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        raw: error,
+      });
+      toast.error(err?.message || "Failed to save supplement. Please try again.");
+      // Still reset state even on error
+      setScannedData(null);
+      setPreviewImage(null);
+    }
   };
 
   const handleScanCancel = () => {
@@ -316,31 +453,44 @@ export default function SupplementsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-            <Pill className="w-5 h-5 text-purple-600" />
-          </div>
-          <h1 className="text-2xl font-bold">Supplements</h1>
-        </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Log
-        </Button>
-      </div>
+      <PageHeader
+        title="Supplements"
+        description="Track your supplements and keep a clean record over time."
+        action={
+          <Button onClick={() => setShowAddForm(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Log
+          </Button>
+        }
+      />
 
       {/* Tabs */}
       <Tabs defaultValue="today" className="w-full">
-        <TabsList className="w-full grid grid-cols-3">
-          <TabsTrigger value="today">Today</TabsTrigger>
-          <TabsTrigger value="database">Database</TabsTrigger>
-          <TabsTrigger value="add">Add New</TabsTrigger>
+        <TabsList className="w-full grid grid-cols-3 h-11 border border-[color:var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl p-1">
+          <TabsTrigger
+            value="today"
+            className="w-full aria-selected:!bg-slate-900 aria-selected:!text-white dark:aria-selected:!bg-slate-100 dark:aria-selected:!text-slate-900 aria-selected:shadow-none"
+          >
+            Today
+          </TabsTrigger>
+          <TabsTrigger
+            value="database"
+            className="w-full aria-selected:!bg-slate-900 aria-selected:!text-white dark:aria-selected:!bg-slate-100 dark:aria-selected:!text-slate-900 aria-selected:shadow-none"
+          >
+            Database
+          </TabsTrigger>
+          <TabsTrigger
+            value="add"
+            className="w-full aria-selected:!bg-slate-900 aria-selected:!text-white dark:aria-selected:!bg-slate-100 dark:aria-selected:!text-slate-900 aria-selected:shadow-none"
+          >
+            Add New
+          </TabsTrigger>
         </TabsList>
 
         {/* Today Tab */}
         <TabsContent value="today" className="space-y-4">
           {/* Date Navigation */}
-          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-center justify-between rounded-[28px] border border-[color:var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shadow-[var(--glass-shadow)] p-3">
             <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
               <ChevronLeft className="w-5 h-5" />
             </Button>
@@ -363,38 +513,52 @@ export default function SupplementsPage() {
             </Button>
           </div>
 
-          {/* Quick Add */}
-          <Card>
+          {/* My Pill Organizer */}
+          <Card className="rounded-[28px]">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Quick Add</CardTitle>
+              <CardTitle className="text-lg">My Pill Organizer</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-2">
-                {SUPPLEMENTS_LIBRARY.slice(0, 8).map((supplement) => {
-                  const taken = takenSupplements.has(supplement.name);
-                  return (
-                    <button
-                      key={supplement.id}
-                      onClick={() => !taken && quickLog(supplement)}
-                      disabled={taken || createLog.isPending}
-                      className={cn(
-                        "flex items-center justify-between p-3 rounded-lg text-left transition-colors",
-                        taken
-                          ? "bg-primary-50 border-2 border-primary-200"
-                          : "bg-gray-100 hover:bg-gray-200"
-                      )}
-                    >
-                      <span className="font-medium text-sm">{supplement.name}</span>
-                      {taken && <Check className="w-4 h-4 text-primary-600" />}
-                    </button>
-                  );
-                })}
-              </div>
+              {supplementsLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400 dark:text-slate-500" />
+                </div>
+              ) : databaseSupplements.length === 0 ? (
+                <EmptyState
+                  icon={Pill}
+                  title="No supplements yet"
+                  description="Add your first supplement to start tracking."
+                  className="py-4"
+                />
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {databaseSupplements.slice(0, 8).map((supplement) => {
+                    const displayName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
+                    const taken = takenSupplements.has(displayName);
+                    return (
+                      <button
+                        key={supplement.id}
+                        onClick={() => !taken && quickLog(supplement)}
+                        disabled={taken || createLog.isPending}
+                        className={cn(
+                          "flex items-center justify-between p-3 rounded-2xl text-left transition-colors border",
+                          taken
+                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                            : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        )}
+                      >
+                        <span className="font-medium text-sm truncate">{supplement.name}</span>
+                        {taken && <Check className="w-4 h-4 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Today's Supplements */}
-          <Card>
+          <Card className="rounded-[28px]">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Taken Today</CardTitle>
@@ -406,12 +570,15 @@ export default function SupplementsPage() {
             <CardContent>
               {logsLoading ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400 dark:text-slate-500" />
                 </div>
               ) : todaysLogs.length === 0 ? (
-                <p className="text-center text-gray-500 py-6">
-                  No supplements logged today
-                </p>
+                <EmptyState
+                  icon={Pill}
+                  title="No supplements today"
+                  description="Log your supplements to keep track of your daily intake."
+                  className="py-4"
+                />
               ) : (
                 <ul className="space-y-2">
                   {todaysLogs.map((log) => {
@@ -421,7 +588,7 @@ export default function SupplementsPage() {
                     return (
                       <li
                         key={log.id}
-                        className="border border-gray-200 rounded-lg overflow-hidden"
+                        className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden"
                       >
                         <div className="flex items-center justify-between p-3">
                           <div
@@ -438,7 +605,7 @@ export default function SupplementsPage() {
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                               {log.dosage} {log.unit} at{" "}
                               {new Date(log.logged_at).toLocaleTimeString("en-US", {
                                 hour: "numeric",
@@ -465,7 +632,7 @@ export default function SupplementsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="text-gray-500 hover:text-destructive"
+                              className="text-slate-500 dark:text-slate-400 hover:text-destructive"
                               onClick={() => handleDeleteLog(log.id)}
                               disabled={deleteLog.isPending}
                             >
@@ -476,14 +643,14 @@ export default function SupplementsPage() {
 
                         {/* Expanded Ingredient List */}
                         {isExpanded && detailedInfo && (
-                          <div className="border-t border-gray-200 bg-gray-100/30 p-3">
+                          <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/30 p-3">
                             <IngredientList
                               ingredients={detailedInfo.supplement_ingredients || []}
                             />
                             {detailedInfo.certifications &&
                               detailedInfo.certifications.length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <p className="text-xs text-gray-500 mb-2">
+                                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
                                     Certifications
                                   </p>
                                   <div className="flex flex-wrap gap-1">
@@ -513,26 +680,145 @@ export default function SupplementsPage() {
 
         {/* Database Tab */}
         <TabsContent value="database" className="space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <Input
-              placeholder="Search supplements..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+          {/* Search + Type Filter */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <Input
+                placeholder="Search supplements..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 h-12 rounded-2xl border-[color:var(--glass-border)] bg-[var(--glass-bg)] focus-visible:ring-slate-900/10 dark:focus-visible:ring-slate-100/10"
+              />
+            </div>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="h-12 rounded-2xl border border-[color:var(--glass-border)] bg-[var(--glass-bg)] px-4 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/10"
+            >
+              <option value="all">All types</option>
+              {availableTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant={showAdvancedFilters ? "default" : "outline"}
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className="h-12 rounded-2xl shrink-0"
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Filters
+              {Object.values(dietaryFilters).some(Boolean) || kosherFilter !== "all" ? (
+                <Badge className="ml-2 h-5 w-5 rounded-full p-0 flex items-center justify-center">
+                  {Object.values(dietaryFilters).filter(Boolean).length +
+                    (kosherFilter !== "all" ? 1 : 0)}
+                </Badge>
+              ) : null}
+            </Button>
           </div>
+
+          {/* Advanced Filters */}
+          {showAdvancedFilters && (
+            <Card className="rounded-2xl p-4">
+              <div className="space-y-4">
+                {/* Kosher Filter */}
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                    Kosher Certification
+                  </label>
+                  <select
+                    value={kosherFilter}
+                    onChange={(e) => setKosherFilter(e.target.value)}
+                    className="w-full h-10 rounded-xl border border-[color:var(--glass-border)] bg-[var(--glass-bg)] px-3 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/10"
+                  >
+                    <option value="all">Any (no filter)</option>
+                    <option value="any">Kosher (any certifier)</option>
+                    {availableKosherCertifiers.map((certifier) => (
+                      <option key={certifier} value={certifier}>
+                        {certifier}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Dietary Attribute Filters */}
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                    Dietary & Quality Attributes
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { key: "thirdPartyTested", label: "Third-Party Tested" },
+                      { key: "vegan", label: "Vegan" },
+                      { key: "vegetarian", label: "Vegetarian" },
+                      { key: "glutenFree", label: "Gluten-Free" },
+                      { key: "halal", label: "Halal" },
+                      { key: "nonGMO", label: "Non-GMO" },
+                    ].map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() =>
+                          setDietaryFilters((prev) => ({
+                            ...prev,
+                            [key]: !prev[key as keyof typeof prev],
+                          }))
+                        }
+                        className={cn(
+                          "px-3 py-1.5 rounded-full text-sm transition-colors border",
+                          dietaryFilters[key as keyof typeof dietaryFilters]
+                            ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100"
+                            : "bg-white dark:bg-slate-800 border-[color:var(--glass-border)] hover:bg-slate-50 dark:hover:bg-slate-700"
+                        )}
+                      >
+                        {dietaryFilters[key as keyof typeof dietaryFilters] && (
+                          <Check className="w-3 h-3 inline mr-1" />
+                        )}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Clear Filters */}
+                {(Object.values(dietaryFilters).some(Boolean) || kosherFilter !== "all") && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setKosherFilter("all");
+                      setDietaryFilters({
+                        thirdPartyTested: false,
+                        vegan: false,
+                        vegetarian: false,
+                        glutenFree: false,
+                        halal: false,
+                        nonGMO: false,
+                      });
+                    }}
+                    className="text-slate-500"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Clear all filters
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
 
           {/* Supplement List */}
           {supplementsLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-slate-400 dark:text-slate-500" />
             </div>
           ) : filteredSupplements.length === 0 ? (
-            <p className="text-center text-gray-500 py-12">
-              No supplements found in database
-            </p>
+            <EmptyState
+              icon={Search}
+              title="No results found"
+              description="Try adjusting your search or filters to find what you're looking for."
+              className="py-8"
+            />
           ) : (
             <div className="space-y-3">
               {filteredSupplements.map((supplement) => (
@@ -550,7 +836,7 @@ export default function SupplementsPage() {
 
         {/* Add New Tab */}
         <TabsContent value="add" className="space-y-4">
-          <Card>
+          <Card className="rounded-[28px]">
             <CardHeader>
               <CardTitle className="text-lg">Add New Supplement</CardTitle>
             </CardHeader>
@@ -560,15 +846,25 @@ export default function SupplementsPage() {
                 <button
                   onClick={() => setAddMode("browse")}
                   className={cn(
-                    "p-4 rounded-lg text-left transition-colors border-2",
+                    "p-4 rounded-2xl text-left transition-colors border",
                     addMode === "browse"
-                      ? "border-primary bg-primary/5"
-                      : "border-gray-200 hover:border-gray-400"
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                      : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
                   )}
                 >
-                  <Search className="w-5 h-5 mb-2 text-primary" />
+                  <Search
+                    className={cn(
+                      "w-5 h-5 mb-2",
+                      addMode === "browse" ? "text-white dark:text-slate-900" : "text-slate-900 dark:text-slate-100"
+                    )}
+                  />
                   <p className="font-medium text-sm">Browse Database</p>
-                  <p className="text-xs text-gray-500">
+                  <p
+                    className={cn(
+                      "text-xs",
+                      addMode === "browse" ? "text-white/80 dark:text-slate-900/80" : "text-slate-600 dark:text-slate-400"
+                    )}
+                  >
                     Search existing supplements
                   </p>
                 </button>
@@ -576,15 +872,25 @@ export default function SupplementsPage() {
                 <button
                   onClick={() => setAddMode("photo")}
                   className={cn(
-                    "p-4 rounded-lg text-left transition-colors border-2",
+                    "p-4 rounded-2xl text-left transition-colors border",
                     addMode === "photo"
-                      ? "border-primary bg-primary/5"
-                      : "border-gray-200 hover:border-gray-400"
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                      : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
                   )}
                 >
-                  <Camera className="w-5 h-5 mb-2 text-primary" />
+                  <Camera
+                    className={cn(
+                      "w-5 h-5 mb-2",
+                      addMode === "photo" ? "text-white dark:text-slate-900" : "text-slate-900 dark:text-slate-100"
+                    )}
+                  />
                   <p className="font-medium text-sm">Scan Label</p>
-                  <p className="text-xs text-gray-500">
+                  <p
+                    className={cn(
+                      "text-xs",
+                      addMode === "photo" ? "text-white/80 dark:text-slate-900/80" : "text-slate-600 dark:text-slate-400"
+                    )}
+                  >
                     AI reads your supplement
                   </p>
                 </button>
@@ -592,15 +898,25 @@ export default function SupplementsPage() {
                 <button
                   onClick={() => setAddMode("url")}
                   className={cn(
-                    "p-4 rounded-lg text-left transition-colors border-2",
+                    "p-4 rounded-2xl text-left transition-colors border",
                     addMode === "url"
-                      ? "border-primary bg-primary/5"
-                      : "border-gray-200 hover:border-gray-400"
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                      : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
                   )}
                 >
-                  <LinkIcon className="w-5 h-5 mb-2 text-primary" />
+                  <LinkIcon
+                    className={cn(
+                      "w-5 h-5 mb-2",
+                      addMode === "url" ? "text-white dark:text-slate-900" : "text-slate-900 dark:text-slate-100"
+                    )}
+                  />
                   <p className="font-medium text-sm">Product Link</p>
-                  <p className="text-xs text-gray-500">
+                  <p
+                    className={cn(
+                      "text-xs",
+                      addMode === "url" ? "text-white/80 dark:text-slate-900/80" : "text-slate-600 dark:text-slate-400"
+                    )}
+                  >
                     Paste URL to import
                   </p>
                 </button>
@@ -608,15 +924,25 @@ export default function SupplementsPage() {
                 <button
                   onClick={() => setAddMode("manual")}
                   className={cn(
-                    "p-4 rounded-lg text-left transition-colors border-2",
+                    "p-4 rounded-2xl text-left transition-colors border",
                     addMode === "manual"
-                      ? "border-primary bg-primary/5"
-                      : "border-gray-200 hover:border-gray-400"
+                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                      : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
                   )}
                 >
-                  <Edit3 className="w-5 h-5 mb-2 text-primary" />
+                  <Edit3
+                    className={cn(
+                      "w-5 h-5 mb-2",
+                      addMode === "manual" ? "text-white dark:text-slate-900" : "text-slate-900 dark:text-slate-100"
+                    )}
+                  />
                   <p className="font-medium text-sm">Manual Entry</p>
-                  <p className="text-xs text-gray-500">
+                  <p
+                    className={cn(
+                      "text-xs",
+                      addMode === "manual" ? "text-white/80 dark:text-slate-900/80" : "text-slate-600 dark:text-slate-400"
+                    )}
+                  >
                     Enter details yourself
                   </p>
                 </button>
@@ -629,6 +955,7 @@ export default function SupplementsPage() {
                     placeholder="Search supplements to add..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-12 rounded-2xl border-[color:var(--glass-border)] bg-[var(--glass-bg)] focus-visible:ring-slate-900/10 dark:focus-visible:ring-slate-100/10"
                   />
                   <div className="max-h-64 overflow-y-auto space-y-2">
                     {filteredSupplements.slice(0, 10).map((supplement) => (
@@ -636,17 +963,17 @@ export default function SupplementsPage() {
                         key={supplement.id}
                         onClick={() => handleLogDetailedSupplement(supplement)}
                         disabled={createLog.isPending}
-                        className="w-full p-3 rounded-lg bg-gray-100 text-left hover:bg-gray-100/80 transition-colors disabled:opacity-50"
+                        className="w-full p-4 rounded-2xl border border-[color:var(--glass-border)] bg-white dark:bg-slate-800 text-left hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
                       >
                         <p className="font-medium">
                           {supplement.brand && (
-                            <span className="text-gray-500">
+                            <span className="text-slate-500">
                               {supplement.brand}{" "}
                             </span>
                           )}
                           {supplement.name}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-slate-600 dark:text-slate-400">
                           {supplement.type} - {supplement.supplement_ingredients?.length || 0}{" "}
                           nutrients
                         </p>
@@ -668,12 +995,12 @@ export default function SupplementsPage() {
 
                   {/* Error Display */}
                   {scanError && !isScanning && (
-                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
                       <div className="flex items-start gap-3">
                         <X className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                         <div>
-                          <p className="font-medium text-red-800">Scan Failed</p>
-                          <p className="text-sm text-red-700 mt-1">{scanError}</p>
+                          <p className="font-medium text-red-800 dark:text-red-300">Scan Failed</p>
+                          <p className="text-sm text-red-700 dark:text-red-400 mt-1">{scanError}</p>
                           <Button
                             variant="outline"
                             size="sm"
@@ -695,7 +1022,7 @@ export default function SupplementsPage() {
                     <>
                       {/* Image Preview */}
                       {previewImage && (
-                        <div className="relative rounded-lg overflow-hidden border border-gray-200">
+                        <div className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
                           <img
                             src={previewImage}
                             alt="Supplement label preview"
@@ -713,14 +1040,14 @@ export default function SupplementsPage() {
                       )}
 
                       {/* Upload Area */}
-                      <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
+                      <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
                         <div className="flex justify-center mb-3">
                           <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center">
                             <Sparkles className="w-8 h-8 text-primary-500" />
                           </div>
                         </div>
                         <p className="font-medium mb-1">AI Label Scanner</p>
-                        <p className="text-sm text-gray-500 mb-4">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
                           Take a photo or upload an image of your supplement label
                         </p>
 
@@ -754,11 +1081,11 @@ export default function SupplementsPage() {
                         </div>
                       </div>
 
-                      <div className="bg-blue-50 rounded-lg p-3">
-                        <p className="text-sm text-blue-800 font-medium mb-1">
+                      <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3">
+                        <p className="text-sm text-blue-800 dark:text-blue-300 font-medium mb-1">
                           Tips for best results:
                         </p>
-                        <ul className="text-xs text-blue-700 space-y-1">
+                        <ul className="text-xs text-blue-700 dark:text-blue-400 space-y-1">
                           <li>- Capture the full "Supplement Facts" panel</li>
                           <li>- Ensure good lighting with no glare</li>
                           <li>- Hold camera steady for a sharp image</li>
@@ -774,14 +1101,14 @@ export default function SupplementsPage() {
                 <div className="space-y-4">
                   {/* Show import progress or error */}
                   {isImporting && importProgress && (
-                    <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4">
                       <div className="flex items-center gap-3">
-                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-blue-800">
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
                             {importProgress.message}
                           </p>
-                          <div className="mt-2 bg-blue-200 rounded-full h-1.5">
+                          <div className="mt-2 bg-blue-200 dark:bg-blue-800 rounded-full h-1.5">
                             <div
                               className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
                               style={{ width: `${importProgress.progress}%` }}
@@ -793,12 +1120,12 @@ export default function SupplementsPage() {
                   )}
 
                   {importError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                      <p className="text-sm text-red-700">{importError}</p>
+                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                      <p className="text-sm text-red-700 dark:text-red-400">{importError}</p>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="mt-2 text-red-700 hover:text-red-800"
+                        className="mt-2 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
                         onClick={() => setImportError(null)}
                       >
                         Dismiss
@@ -826,7 +1153,7 @@ export default function SupplementsPage() {
                         <LinkIcon className="w-4 h-4 mr-2" />
                         Import from URL
                       </Button>
-                      <p className="text-xs text-gray-500 text-center">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
                         Works with Amazon, iHerb, Thorne, and most supplement
                         retailers
                       </p>
@@ -839,208 +1166,34 @@ export default function SupplementsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
       </Tabs>
 
       {/* Detailed Supplement Modal */}
       {selectedDetailedSupplement && (
-        <div className="fixed inset-0 bg-black/50 flex items-end lg:items-center justify-center z-50">
-          <Card className="w-full max-w-lg mx-4 mb-4 lg:mb-0 max-h-[85vh] overflow-auto">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  {selectedDetailedSupplement.brand && (
-                    <p className="text-sm text-gray-500">
-                      {selectedDetailedSupplement.brand}
-                    </p>
-                  )}
-                  <CardTitle>{selectedDetailedSupplement.name}</CardTitle>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setSelectedDetailedSupplement(null)}
-                >
-                  <X className="w-5 h-5" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Metadata */}
-              <div className="flex flex-wrap gap-2">
-                <Badge>{selectedDetailedSupplement.type}</Badge>
-                <Badge variant="outline">
-                  {selectedDetailedSupplement.serving_size}
-                </Badge>
-                {selectedDetailedSupplement.is_verified && (
-                  <Badge variant="secondary">
-                    <Check className="w-3 h-3 mr-1" />
-                    Verified
-                  </Badge>
-                )}
-              </div>
-
-              {/* Ingredients */}
-              <div>
-                <h3 className="font-medium mb-2">
-                  Supplement Facts ({selectedDetailedSupplement.supplement_ingredients?.length || 0}{" "}
-                  nutrients)
-                </h3>
-                <IngredientList
-                  ingredients={selectedDetailedSupplement.supplement_ingredients || []}
-                  showDetails
-                />
-              </div>
-
-              {/* Other Ingredients */}
-              {selectedDetailedSupplement.other_ingredients &&
-                selectedDetailedSupplement.other_ingredients.length > 0 && (
-                  <div>
-                    <h3 className="font-medium mb-2">Other Ingredients</h3>
-                    <p className="text-sm text-gray-500">
-                      {selectedDetailedSupplement.other_ingredients.join(", ")}
-                    </p>
-                  </div>
-                )}
-
-              {/* Certifications */}
-              {selectedDetailedSupplement.certifications &&
-                selectedDetailedSupplement.certifications.length > 0 && (
-                  <div>
-                    <h3 className="font-medium mb-2">Certifications</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedDetailedSupplement.certifications.map((cert) => (
-                        <Badge key={cert} variant="outline">
-                          <Shield className="w-3 h-3 mr-1" />
-                          {cert}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              {/* Log Button */}
-              <Button
-                className="w-full"
-                disabled={createLog.isPending}
-                onClick={() => {
-                  handleLogDetailedSupplement(selectedDetailedSupplement);
-                  setSelectedDetailedSupplement(null);
-                }}
-              >
-                {createLog.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Plus className="w-4 h-4 mr-2" />
-                )}
-                Log This Supplement
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+        <SupplementDetailModal
+          supplement={selectedDetailedSupplement}
+          onClose={() => setSelectedDetailedSupplement(null)}
+          onLog={() => {
+            handleLogDetailedSupplement(selectedDetailedSupplement);
+            setSelectedDetailedSupplement(null);
+          }}
+          isLogging={createLog.isPending}
+        />
       )}
 
-      {/* Simple Add Supplement Modal (legacy) */}
+      {/* Quick Log Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-end lg:items-center justify-center z-50">
-          <Card className="w-full max-w-lg mx-4 mb-4 lg:mb-0 max-h-[80vh] overflow-auto">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Log Supplement</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowAddForm(false);
-                    setSelectedSupplement(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {!selectedSupplement ? (
-                <>
-                  <p className="text-sm text-gray-500">
-                    Select a supplement to log
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {SUPPLEMENTS_LIBRARY.map((supplement) => (
-                      <button
-                        key={supplement.id}
-                        onClick={() => handleSelectSupplement(supplement)}
-                        className="p-3 rounded-lg bg-gray-100 text-left hover:bg-gray-100/80 transition-colors"
-                      >
-                        <p className="font-medium text-sm">{supplement.name}</p>
-                        {supplement.recommendedDosage && (
-                          <p className="text-xs text-gray-500">
-                            {supplement.recommendedDosage} {supplement.dosageUnit}
-                          </p>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-center py-4 bg-purple-50 rounded-lg">
-                    <p className="text-lg font-bold text-purple-800">
-                      {selectedSupplement.name}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Dosage</label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Input
-                        type="number"
-                        value={dosage}
-                        onChange={(e) => setDosage(e.target.value)}
-                        placeholder="Amount"
-                        className="flex-1"
-                      />
-                      <span className="text-sm text-gray-500">
-                        {selectedSupplement.dosageUnit}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">
-                      Notes (optional)
-                    </label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Any additional details..."
-                      className="mt-1 w-full min-h-[80px] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setSelectedSupplement(null)}
-                    >
-                      Back
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      onClick={handleLogSupplement}
-                      disabled={!dosage || createLog.isPending}
-                    >
-                      {createLog.isPending ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : null}
-                      Log Supplement
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <QuickLogModal
+          supplements={databaseSupplements}
+          isLoading={supplementsLoading}
+          isLogging={createLog.isPending}
+          onLog={(supplement) => {
+            quickLog(supplement);
+            setShowAddForm(false);
+          }}
+          onClose={() => setShowAddForm(false)}
+        />
       )}
 
       {/* Scanned Supplement Review Modal */}
@@ -1049,345 +1202,9 @@ export default function SupplementsPage() {
           data={scannedData}
           onConfirm={handleScanConfirm}
           onCancel={handleScanCancel}
-          isSaving={createLog.isPending}
+          isSaving={createSupplement.isPending || createLog.isPending}
         />
       )}
-    </div>
-  );
-}
-
-// Ingredient List Component
-function IngredientList({
-  ingredients,
-  showDetails = false,
-}: {
-  ingredients: Array<{
-    nutrient_name: string;
-    amount: number;
-    unit: string;
-    daily_value_percent?: number | null;
-    form?: string | null;
-    source?: string | null;
-    notes?: string | null;
-  }>;
-  showDetails?: boolean;
-}) {
-  return (
-    <div className="space-y-2">
-      {ingredients.map((ingredient, idx) => (
-        <div
-          key={idx}
-          className="flex items-start justify-between py-2 border-b border-gray-200 last:border-0"
-        >
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <p className="font-medium text-sm">{ingredient.nutrient_name}</p>
-              {ingredient.form && ingredient.form !== "unknown" && (
-                <Badge variant="outline" className="text-xs">
-                  {FORM_LABELS[ingredient.form as NutrientForm] || ingredient.form}
-                </Badge>
-              )}
-            </div>
-            {showDetails && ingredient.source && ingredient.source !== "unknown" && (
-              <div className="flex items-center gap-1 mt-1">
-                <SourceIcon source={ingredient.source as NutrientSource} />
-                <span className="text-xs text-gray-500">
-                  {SOURCE_LABELS[ingredient.source as NutrientSource] || ingredient.source}
-                </span>
-              </div>
-            )}
-            {ingredient.notes && (
-              <p className="text-xs text-gray-500 mt-1">
-                {ingredient.notes}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <p className="font-medium text-sm">
-              {ingredient.amount} {ingredient.unit}
-            </p>
-            {ingredient.daily_value_percent !== undefined && ingredient.daily_value_percent !== null && (
-              <p className="text-xs text-gray-500">
-                {ingredient.daily_value_percent}% DV
-              </p>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Source Icon Component
-function SourceIcon({ source }: { source: NutrientSource }) {
-  switch (source) {
-    case "plant":
-    case "algae":
-    case "whole_food":
-      return <Leaf className="w-3 h-3 text-green-600" />;
-    case "synthetic":
-      return <FlaskConical className="w-3 h-3 text-blue-600" />;
-    case "fermented":
-    case "bacterial":
-    case "yeast":
-      return <FlaskConical className="w-3 h-3 text-purple-600" />;
-    case "fish":
-    case "animal":
-      return <Info className="w-3 h-3 text-orange-600" />;
-    default:
-      return <Info className="w-3 h-3 text-gray-400" />;
-  }
-}
-
-// Supplement Card Component
-function SupplementCard({
-  supplement,
-  onLog,
-  onViewDetails,
-  isLogging,
-}: {
-  supplement: DatabaseSupplement;
-  onLog: () => void;
-  onViewDetails: () => void;
-  isLogging: boolean;
-}) {
-  const topNutrients = (supplement.supplement_ingredients || []).slice(0, 4);
-
-  return (
-    <Card className="cursor-pointer hover:border-primary/50 transition-colors">
-      <CardContent className="p-4" onClick={onViewDetails}>
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            {supplement.brand && (
-              <p className="text-xs text-gray-500">{supplement.brand}</p>
-            )}
-            <h3 className="font-medium">{supplement.name}</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              {supplement.serving_size} - {supplement.supplement_ingredients?.length || 0} nutrients
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <Badge variant="secondary" className="capitalize">
-              {supplement.type}
-            </Badge>
-            {supplement.is_verified && (
-              <Badge variant="outline" className="text-xs">
-                <Check className="w-3 h-3 mr-1" />
-                Verified
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        {/* Preview of top nutrients */}
-        <div className="space-y-1 mb-3">
-          {topNutrients.map((nutrient, idx) => (
-            <div
-              key={idx}
-              className="flex items-center justify-between text-xs"
-            >
-              <span className="text-gray-500">
-                {nutrient.nutrient_name}
-              </span>
-              <span>
-                {nutrient.amount} {nutrient.unit}
-                {nutrient.daily_value_percent !== undefined && nutrient.daily_value_percent !== null && (
-                  <span className="text-gray-500">
-                    {" "}
-                    ({nutrient.daily_value_percent}%)
-                  </span>
-                )}
-              </span>
-            </div>
-          ))}
-          {(supplement.supplement_ingredients?.length || 0) > 4 && (
-            <p className="text-xs text-gray-500">
-              +{(supplement.supplement_ingredients?.length || 0) - 4} more nutrients
-            </p>
-          )}
-        </div>
-
-        {/* Certifications preview */}
-        {supplement.certifications && supplement.certifications.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {supplement.certifications.slice(0, 3).map((cert) => (
-              <Badge key={cert} variant="outline" className="text-xs">
-                {cert}
-              </Badge>
-            ))}
-          </div>
-        )}
-
-        <Button
-          className="w-full"
-          size="sm"
-          disabled={isLogging}
-          onClick={(e) => {
-            e.stopPropagation();
-            onLog();
-          }}
-        >
-          {isLogging ? (
-            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-          ) : (
-            <Plus className="w-4 h-4 mr-1" />
-          )}
-          Log
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Manual Entry Form Component
-function ManualEntryForm() {
-  const [name, setName] = useState("");
-  const [brand, setBrand] = useState("");
-  const [servingSize, setServingSize] = useState("");
-  const [ingredients, setIngredients] = useState<Array<{
-    nutrientName: string;
-    amount: number;
-    unit: string;
-  }>>([{ nutrientName: "", amount: 0, unit: "mg" }]);
-
-  const createLog = useCreateSupplementLog();
-
-  const addIngredient = () => {
-    setIngredients([...ingredients, { nutrientName: "", amount: 0, unit: "mg" }]);
-  };
-
-  const updateIngredient = (
-    index: number,
-    field: "nutrientName" | "amount" | "unit",
-    value: string | number
-  ) => {
-    const updated = [...ingredients];
-    updated[index] = { ...updated[index], [field]: value };
-    setIngredients(updated);
-  };
-
-  const removeIngredient = (index: number) => {
-    if (ingredients.length > 1) {
-      setIngredients(ingredients.filter((_, i) => i !== index));
-    }
-  };
-
-  const handleSubmit = () => {
-    if (!name || !servingSize) return;
-
-    // For now, just log the supplement directly
-    createLog.mutate({
-      supplement_name: brand ? `${brand} ${name}` : name,
-      dosage: 1,
-      unit: servingSize,
-      notes: `Custom supplement with ${ingredients.filter(i => i.nutrientName).length} ingredients`,
-    });
-
-    // Reset form
-    setName("");
-    setBrand("");
-    setServingSize("");
-    setIngredients([{ nutrientName: "", amount: 0, unit: "mg" }]);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium">Supplement Name *</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Vitamin D3"
-            className="mt-1"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Brand</label>
-          <Input
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
-            placeholder="e.g., NOW Foods"
-            className="mt-1"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="text-sm font-medium">Serving Size *</label>
-        <Input
-          value={servingSize}
-          onChange={(e) => setServingSize(e.target.value)}
-          placeholder="e.g., 1 capsule"
-          className="mt-1"
-        />
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium">Ingredients</label>
-          <Button variant="ghost" size="sm" onClick={addIngredient}>
-            <Plus className="w-4 h-4 mr-1" />
-            Add
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {ingredients.map((ingredient, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <Input
-                placeholder="Nutrient name"
-                value={ingredient.nutrientName}
-                onChange={(e) =>
-                  updateIngredient(idx, "nutrientName", e.target.value)
-                }
-                className="flex-1"
-              />
-              <Input
-                type="number"
-                placeholder="Amount"
-                value={ingredient.amount || ""}
-                onChange={(e) =>
-                  updateIngredient(idx, "amount", parseFloat(e.target.value) || 0)
-                }
-                className="w-24"
-              />
-              <select
-                value={ingredient.unit}
-                onChange={(e) => updateIngredient(idx, "unit", e.target.value)}
-                className="h-10 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="mg">mg</option>
-                <option value="mcg">mcg</option>
-                <option value="g">g</option>
-                <option value="IU">IU</option>
-                <option value="CFU">CFU</option>
-              </select>
-              {ingredients.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeIngredient(idx)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <Button
-        className="w-full"
-        onClick={handleSubmit}
-        disabled={!name || !servingSize || createLog.isPending}
-      >
-        {createLog.isPending ? (
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-        ) : (
-          <Plus className="w-4 h-4 mr-2" />
-        )}
-        Add Supplement
-      </Button>
     </div>
   );
 }
@@ -1395,10 +1212,10 @@ function ManualEntryForm() {
 function SupplementsSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-gray-100 rounded-lg animate-pulse w-48" />
-      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
-      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
-      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-10 bg-slate-100 dark:bg-slate-800 rounded-[var(--radius-xl)] animate-pulse w-48" />
+      <div className="h-11 bg-slate-100 dark:bg-slate-800 rounded-[var(--radius-lg)] animate-pulse" />
+      <div className="h-48 bg-slate-100 dark:bg-slate-800 rounded-[var(--radius-xl)] animate-pulse" />
+      <div className="h-48 bg-slate-100 dark:bg-slate-800 rounded-[var(--radius-xl)] animate-pulse" />
     </div>
   );
 }

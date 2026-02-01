@@ -11,6 +11,7 @@ import {
   upsertPreferences,
   getGoals,
   upsertGoals,
+  insertGoalEvent,
   getUserHealthConditions,
   setHealthConditions,
 } from '@/lib/supabase/queries';
@@ -78,6 +79,12 @@ export function useUpdateGoals() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals'] });
     },
+  });
+}
+
+export function useInsertGoalEvent() {
+  return useMutation({
+    mutationFn: insertGoalEvent,
   });
 }
 

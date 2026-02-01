@@ -15,7 +15,9 @@ export * from './use-reference-data';
 
 // User data (requires auth in production)
 export * from './use-profile';
+export * from './use-effective-goals';
 export * from './use-meals';
+export * from './use-meal-plans';
 export * from './use-sleep';
 export * from './use-symptoms';
 export * from './use-supplements';

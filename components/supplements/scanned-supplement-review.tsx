@@ -18,8 +18,113 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import type { ScannedSupplement, ScannedIngredient } from "@/lib/api/supplement-scanner";
+import type { ScannedSupplement, ScannedIngredient, DietaryAttributes, SupplementCategory } from "@/lib/api/supplement-scanner";
+import { SUPPLEMENT_CATEGORIES } from "@/lib/api/supplement-scanner";
 import { cn } from "@/lib/utils/cn";
+
+// Infer category from product name and ingredients
+function inferCategory(data: ScannedSupplement): SupplementCategory {
+  const productName = data.name.toLowerCase();
+  const ingredientNames = data.ingredients.map((i) => i.name.toLowerCase());
+
+  // Check product name first for clear indicators
+  if (productName.includes("prenatal") || productName.includes("pre-natal")) {
+    return "multivitamin";
+  }
+  if (productName.includes("multivitamin") || productName.includes("multi-vitamin")) {
+    return "multivitamin";
+  }
+  if (productName.includes("probiotic") && !productName.includes("vitamin")) {
+    return "probiotic";
+  }
+  if (productName.includes("omega") || productName.includes("fish oil") || productName.includes("dha")) {
+    return "omega";
+  }
+
+  // Count different nutrient types
+  const vitaminCount = ingredientNames.filter((n) =>
+    n.includes("vitamin") || n.includes("folate") || n.includes("folic") ||
+    n.includes("biotin") || n.includes("niacin") || n.includes("thiamin") ||
+    n.includes("riboflavin") || n.includes("cobalamin") || n.includes("choline")
+  ).length;
+
+  const mineralCount = ingredientNames.filter((n) =>
+    ["calcium", "magnesium", "iron", "zinc", "potassium", "selenium", "iodine",
+     "copper", "manganese", "chromium", "molybdenum"].some((m) => n.includes(m))
+  ).length;
+
+  const hasOmega3 = ingredientNames.some((n) =>
+    n.includes("epa") || n.includes("dha") || n.includes("omega")
+  );
+
+  const hasProbiotics = ingredientNames.some((n) =>
+    n.includes("probiotic") || n.includes("lactobacillus") || n.includes("bifidobacterium")
+  );
+
+  // If it has multiple vitamins AND minerals, it's a multivitamin
+  if (vitaminCount >= 3 || (vitaminCount >= 2 && mineralCount >= 2)) {
+    return "multivitamin";
+  }
+
+  // Only classify as probiotic if it's primarily probiotics
+  if (hasProbiotics && vitaminCount < 2 && mineralCount < 2) {
+    return "probiotic";
+  }
+
+  if (hasOmega3) return "omega";
+
+  if (mineralCount > 0 && vitaminCount === 0 && data.ingredients.length <= 3) {
+    return "mineral";
+  }
+
+  if (vitaminCount === 1 && mineralCount === 0) {
+    return "single";
+  }
+
+  return "other";
+}
+
+// Helper to format attribute names for display
+function formatAttributeName(key: string): string {
+  const nameMap: Record<string, string> = {
+    thirdPartyTested: "Third-Party Tested",
+    thirdPartyTesters: "Tested By",
+    cgmpCertified: "cGMP Certified",
+    heavyMetalsTested: "Heavy Metals Tested",
+    vegetarian: "Vegetarian",
+    vegan: "Vegan",
+    meatFree: "Meat-Free",
+    porkFree: "Pork-Free",
+    shellfishFree: "Shellfish-Free",
+    fishFree: "Fish-Free",
+    gelatinFree: "Gelatin-Free",
+    animalGelatinFree: "Animal Gelatin-Free",
+    usesVegetarianCapsule: "Vegetarian Capsule",
+    usesFishGelatin: "Fish Gelatin",
+    usesPorkGelatin: "Pork Gelatin",
+    usesBeefGelatin: "Beef Gelatin",
+    capsuleType: "Capsule Type",
+    kosher: "Kosher",
+    kosherCertifier: "Kosher Certifier",
+    halal: "Halal",
+    halalCertifier: "Halal Certifier",
+    glutenFree: "Gluten-Free",
+    dairyFree: "Dairy-Free",
+    soyFree: "Soy-Free",
+    nutFree: "Nut-Free",
+    eggFree: "Egg-Free",
+    cornFree: "Corn-Free",
+    nonGMO: "Non-GMO",
+    organic: "Organic",
+    organicCertifier: "Organic Certifier",
+    sustainablySourced: "Sustainably Sourced",
+    pregnancySafe: "Pregnancy Safe",
+    nursingSafe: "Nursing Safe",
+    madeInUSA: "Made in USA",
+    countryOfOrigin: "Country of Origin",
+  };
+  return nameMap[key] || key.replace(/([A-Z])/g, " $1").trim();
+}
 
 interface ScannedSupplementReviewProps {
   data: ScannedSupplement;
@@ -34,12 +139,18 @@ export function ScannedSupplementReview({
   onCancel,
   isSaving = false,
 }: ScannedSupplementReviewProps) {
-  const [editedData, setEditedData] = useState<ScannedSupplement>(data);
+  // Initialize with inferred category if not already set
+  const initialData = {
+    ...data,
+    category: data.category || inferCategory(data),
+  };
+  const [editedData, setEditedData] = useState<ScannedSupplement>(initialData);
   const [expandedSections, setExpandedSections] = useState({
     ingredients: true,
     otherIngredients: false,
     allergens: false,
     warnings: false,
+    dietaryAttributes: true,
   });
   const [editingIngredient, setEditingIngredient] = useState<number | null>(null);
 
@@ -183,17 +294,33 @@ export function ScannedSupplementReview({
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium">Servings Per Container</label>
-              <Input
-                type="number"
-                value={editedData.servingsPerContainer || ""}
-                onChange={(e) =>
-                  updateField("servingsPerContainer", e.target.value ? parseInt(e.target.value) : null)
-                }
-                placeholder="Number of servings"
-                className="mt-1 w-40"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Servings Per Container</label>
+                <Input
+                  type="number"
+                  value={editedData.servingsPerContainer || ""}
+                  onChange={(e) =>
+                    updateField("servingsPerContainer", e.target.value ? parseInt(e.target.value) : null)
+                  }
+                  placeholder="Number of servings"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Category</label>
+                <select
+                  value={editedData.category || "other"}
+                  onChange={(e) => updateField("category", e.target.value as SupplementCategory)}
+                  className="mt-1 w-full px-3 py-2 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                >
+                  {SUPPLEMENT_CATEGORIES.map((cat) => (
+                    <option key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -438,6 +565,71 @@ export function ScannedSupplementReview({
             </div>
           )}
 
+          {/* Dietary Attributes Section */}
+          {editedData.dietaryAttributes && Object.keys(editedData.dietaryAttributes).length > 0 && (
+            <div className="border rounded-lg">
+              <button
+                onClick={() => toggleSection("dietaryAttributes")}
+                className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-slate-800"
+              >
+                <span className="font-medium">
+                  Dietary & Quality Attributes
+                </span>
+                {expandedSections.dietaryAttributes ? (
+                  <ChevronUp className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-500" />
+                )}
+              </button>
+
+              {expandedSections.dietaryAttributes && (
+                <div className="border-t p-3 space-y-4">
+                  {/* Testing & Quality */}
+                  <DietaryAttributeGroup
+                    title="Testing & Quality"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["thirdPartyTested", "thirdPartyTesters", "cgmpCertified", "heavyMetalsTested"]}
+                  />
+
+                  {/* Dietary Restrictions */}
+                  <DietaryAttributeGroup
+                    title="Dietary"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["vegetarian", "vegan", "meatFree", "porkFree", "shellfishFree", "fishFree"]}
+                  />
+
+                  {/* Capsule/Gelatin Type */}
+                  <DietaryAttributeGroup
+                    title="Capsule Type"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["capsuleType", "gelatinFree", "animalGelatinFree", "usesVegetarianCapsule", "usesFishGelatin", "usesPorkGelatin", "usesBeefGelatin"]}
+                  />
+
+                  {/* Religious Certifications */}
+                  <DietaryAttributeGroup
+                    title="Religious"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["kosher", "kosherCertifier", "halal", "halalCertifier"]}
+                  />
+
+                  {/* Allergen-Free */}
+                  <DietaryAttributeGroup
+                    title="Allergen-Free"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["glutenFree", "dairyFree", "soyFree", "nutFree", "eggFree", "cornFree"]}
+                  />
+
+                  {/* Other */}
+                  <DietaryAttributeGroup
+                    title="Other"
+                    attributes={editedData.dietaryAttributes}
+                    keys={["nonGMO", "organic", "organicCertifier", "sustainablySourced", "pregnancySafe", "nursingSafe", "madeInUSA", "countryOfOrigin"]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Warnings */}
           {editedData.warnings.length > 0 && (
             <div>
@@ -507,6 +699,73 @@ function OtherIngredientInput({ onAdd }: { onAdd: (value: string) => void }) {
       <Button size="sm" onClick={handleAdd} disabled={!value.trim()}>
         <Plus className="w-4 h-4" />
       </Button>
+    </div>
+  );
+}
+
+// Helper component for displaying dietary attribute groups
+function DietaryAttributeGroup({
+  title,
+  attributes,
+  keys,
+}: {
+  title: string;
+  attributes: DietaryAttributes;
+  keys: (keyof DietaryAttributes)[];
+}) {
+  // Filter to only show attributes that have values
+  const displayedAttributes = keys.filter((key) => {
+    const value = attributes[key];
+    if (value === null || value === undefined) return false;
+    if (Array.isArray(value) && value.length === 0) return false;
+    return true;
+  });
+
+  if (displayedAttributes.length === 0) return null;
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+        {title}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {displayedAttributes.map((key) => {
+          const value = attributes[key];
+          const label = formatAttributeName(key);
+
+          // Handle different value types
+          if (typeof value === "boolean") {
+            return (
+              <Badge
+                key={key}
+                variant={value ? "success" : "secondary"}
+                className="text-xs"
+              >
+                {value ? <Check className="w-3 h-3 mr-1" /> : <X className="w-3 h-3 mr-1" />}
+                {label}
+              </Badge>
+            );
+          }
+
+          if (Array.isArray(value)) {
+            return (
+              <Badge key={key} variant="outline" className="text-xs">
+                {label}: {value.join(", ")}
+              </Badge>
+            );
+          }
+
+          if (typeof value === "string") {
+            return (
+              <Badge key={key} variant="outline" className="text-xs">
+                {label}: {value}
+              </Badge>
+            );
+          }
+
+          return null;
+        })}
+      </div>
     </div>
   );
 }

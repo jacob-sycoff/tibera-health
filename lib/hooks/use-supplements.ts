@@ -55,6 +55,17 @@ export function useCreateSupplementLog() {
       queryClient.invalidateQueries({ queryKey: ['supplement-logs'] });
       queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
     },
+    onError: (error: unknown) => {
+      // Extract useful error info from Supabase errors
+      const err = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error('Failed to create supplement log:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: error,
+      });
+    },
   });
 }
 

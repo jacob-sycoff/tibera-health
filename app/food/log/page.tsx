@@ -2,15 +2,24 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Minus, Check } from "lucide-react";
+import { ArrowLeft, Plus, Minus, Check, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FoodSearch } from "@/components/food/food-search";
-import { useMealsStore } from "@/lib/stores/meals";
-import { getFoodDetails, TRACKED_NUTRIENTS } from "@/lib/api/usda";
-import type { MealType, Food, FoodSearchResult, MealItem } from "@/types";
+import { useCreateMealLog } from "@/lib/hooks/use-meals";
+import { getFoodDetails } from "@/lib/api/usda";
+import type { MealType, Food, FoodSearchResult, FoodNutrient } from "@/types";
 import { cn } from "@/lib/utils/cn";
+
+// Transform USDA nutrients array to a key-value object for Supabase storage
+function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const n of nutrients) {
+    result[n.nutrientId] = n.amount;
+  }
+  return result;
+}
 
 const MEAL_TYPES: { value: MealType; label: string }[] = [
   { value: "breakfast", label: "Breakfast" },
@@ -29,7 +38,7 @@ export default function LogFoodPage() {
   const [items, setItems] = useState<Array<{ food: Food; servings: number }>>([]);
   const [loading, setLoading] = useState(false);
 
-  const { addMeal } = useMealsStore();
+  const createMealLog = useCreateMealLog();
 
   useEffect(() => {
     setMounted(true);
@@ -74,19 +83,25 @@ export default function LogFoodPage() {
   const handleSave = () => {
     if (items.length === 0) return;
 
-    const mealItems: MealItem[] = items.map((item) => ({
-      id: crypto.randomUUID(),
-      food: item.food,
-      servings: item.servings,
-    }));
-
-    addMeal({
-      date: selectedDate,
-      mealType: selectedMealType,
-      items: mealItems,
-    });
-
-    router.push("/food");
+    createMealLog.mutate(
+      {
+        date: selectedDate,
+        meal_type: selectedMealType,
+        items: items.map((item) => ({
+          custom_food_name: item.food.description,
+          custom_food_nutrients: transformNutrients(item.food.nutrients),
+          servings: item.servings,
+        })),
+      },
+      {
+        onSuccess: () => {
+          router.push("/food");
+        },
+        onError: (error) => {
+          console.error("Error saving meal:", error);
+        },
+      }
+    );
   };
 
   const totalCalories = items.reduce((sum, item) => {
@@ -233,11 +248,20 @@ export default function LogFoodPage() {
       {/* Save Button */}
       <Button
         className="w-full h-12"
-        disabled={items.length === 0}
+        disabled={items.length === 0 || createMealLog.isPending}
         onClick={handleSave}
       >
-        <Check className="w-5 h-5 mr-2" />
-        Save Meal ({items.length} item{items.length !== 1 ? "s" : ""})
+        {createMealLog.isPending ? (
+          <>
+            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            Saving...
+          </>
+        ) : (
+          <>
+            <Check className="w-5 h-5 mr-2" />
+            Save Meal ({items.length} item{items.length !== 1 ? "s" : ""})
+          </>
+        )}
       </Button>
     </div>
   );

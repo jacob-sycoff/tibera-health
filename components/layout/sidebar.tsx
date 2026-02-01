@@ -1,30 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import {
-  Utensils,
-  Calendar,
-  ShoppingCart,
-  Moon,
-  Activity,
-  Pill,
-  Settings,
-  LayoutDashboard,
-  Heart,
-} from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-
-const sidebarItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/food", label: "Food Tracker", icon: Utensils },
-  { href: "/planner", label: "Meal Planner", icon: Calendar },
-  { href: "/shopping", label: "Shopping List", icon: ShoppingCart },
-  { href: "/sleep", label: "Sleep Tracker", icon: Moon },
-  { href: "/symptoms", label: "Symptoms", icon: Activity },
-  { href: "/supplements", label: "Supplements", icon: Pill },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+import { appNavItems } from "@/components/layout/nav-items";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 interface SidebarProps {
   className?: string;
@@ -33,30 +14,44 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
 
+  const isActivePath = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
+
   return (
     <aside
       className={cn(
-        "w-64 border-r border-gray-200 bg-white flex flex-col",
+        "relative w-64 border-r backdrop-blur-xl flex flex-col overflow-hidden",
+        "border-[color:var(--glass-border)] bg-[var(--glass-bg)]",
         className
       )}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_circle_at_0%_-15%,rgba(var(--accent-glow-rgb),0.10),transparent_55%),radial-gradient(800px_circle_at_120%_30%,rgba(2,6,23,0.08),transparent_55%)]"
+      />
+
       {/* Logo */}
-      <div className="p-6 border-b border-gray-200">
+      <div className="relative p-6 border-b border-black/5 dark:border-white/5">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center">
-            <Heart className="w-5 h-5 text-white" />
+          <div className="relative h-9 w-[170px]">
+            <Image
+              src="/brand/tibera-logo-v2.png"
+              alt="Tibera Health"
+              fill
+              priority
+              className="object-contain"
+            />
           </div>
-          <span className="text-xl font-bold text-gray-900">Tibera</span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4">
+      <nav className="relative flex-1 p-4" aria-label="Primary">
         <ul className="space-y-1">
-          {sidebarItems.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/" && pathname.startsWith(item.href));
+          {appNavItems.map((item) => {
+            const isActive = isActivePath(item.href);
             const Icon = item.icon;
 
             return (
@@ -64,14 +59,23 @@ export function Sidebar({ className }: SidebarProps) {
                 <Link
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    "group relative flex items-center gap-3 rounded-[18px] text-sm font-medium transition-all",
+                    "pl-8 pr-3 py-2.5",
                     isActive
-                      ? "bg-primary-50 text-primary-700"
-                      : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                      ? "bg-slate-900 text-white shadow-[0_18px_50px_-35px_rgba(2,6,23,0.75)] dark:bg-slate-100 dark:text-slate-900"
+                      : "text-slate-700 hover:bg-white/70 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-slate-100"
                   )}
+                  aria-current={isActive ? "page" : undefined}
                 >
-                  <Icon className="w-5 h-5" />
-                  {item.label}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute left-3 top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-primary-500 transition-opacity",
+                      isActive ? "opacity-100" : "opacity-0 group-hover:opacity-50"
+                    )}
+                  />
+                  <Icon className={cn("w-5 h-5", isActive && "stroke-[2.5]")} />
+                  {item.sidebarLabel}
                 </Link>
               </li>
             );
@@ -80,9 +84,12 @@ export function Sidebar({ className }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="px-3 py-2 text-xs text-gray-500">
-          Tibera Health v1.0.0
+      <div className="relative p-4 border-t border-black/5 dark:border-white/5">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Tibera Health v1.0.0
+          </div>
+          <ThemeToggle size="icon-sm" variant="outline" />
         </div>
       </div>
     </aside>

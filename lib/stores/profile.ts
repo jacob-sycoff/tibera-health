@@ -30,13 +30,26 @@ interface ProfileState {
 
 // Condition-based goal adjustments
 const CONDITION_ADJUSTMENTS: Partial<Record<HealthCondition, Partial<NutrientGoals>>> = {
+  // Pregnancy and breastfeeding
   pregnancy_first_trimester: { calories: 2200, protein: 75, fiber: 30 },
   pregnancy_second_trimester: { calories: 2400, protein: 75, fiber: 30 },
   pregnancy_third_trimester: { calories: 2500, protein: 75, fiber: 30 },
   breastfeeding: { calories: 2500, protein: 71, fiber: 30 },
+
+  // Weight management
   athletic_training: { calories: 2800, protein: 120, carbs: 350 },
   weight_loss: { calories: 1500, protein: 100, carbs: 150 },
   weight_gain: { calories: 2500, protein: 100, carbs: 350 },
+
+  // Health conditions
+  heart_health: { fat: 55, fiber: 35 }, // Lower fat, higher fiber for cardiovascular health
+  diabetes_management: { carbs: 150, protein: 90, fiber: 35 }, // Lower carbs, higher fiber/protein
+  iron_deficiency: { protein: 75 }, // Higher protein to encourage iron-rich foods
+  bone_health: { protein: 75 }, // Protein supports bone matrix
+
+  // Dietary patterns
+  vegetarian: { protein: 70 }, // Slightly higher to compensate for plant protein bioavailability
+  vegan: { protein: 75, calories: 2100 }, // Higher protein target, slightly more calories
 };
 
 export const useProfileStore = create<ProfileState>()(

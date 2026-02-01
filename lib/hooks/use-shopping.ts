@@ -17,6 +17,7 @@ import {
   deleteShoppingItem,
   clearCheckedItems,
   addItemsFromMealPlan,
+  generateShoppingListFromPlan,
 } from '@/lib/supabase/queries';
 
 // ============================================
@@ -165,6 +166,25 @@ export function useAddItemsFromMealPlan() {
       mealPlanId: string;
       items: Parameters<typeof addItemsFromMealPlan>[2];
     }) => addItemsFromMealPlan(listId, mealPlanId, items),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shopping-lists'] });
+    },
+  });
+}
+
+export function useGenerateShoppingListFromPlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      startDate,
+      endDate,
+      listName,
+    }: {
+      startDate: string;
+      endDate: string;
+      listName?: string;
+    }) => generateShoppingListFromPlan(startDate, endDate, listName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shopping-lists'] });
     },

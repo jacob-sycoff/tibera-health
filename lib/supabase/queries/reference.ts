@@ -4,6 +4,7 @@
  */
 
 import { supabase } from '../client';
+import { getDemoUserId } from '../constants';
 
 // ============================================
 // NUTRIENTS
@@ -107,12 +108,13 @@ export interface DatabaseSupplement {
   type: string;
   serving_size: string | null;
   servings_per_container: number | null;
-  other_ingredients: string[];
-  allergens: string[];
-  certifications: string[];
+  other_ingredients: string[] | null;
+  allergens: string[] | null;
+  certifications: string[] | null;
   image_url: string | null;
   product_url: string | null;
   barcode: string | null;
+  attributes: Record<string, unknown>;
   is_verified: boolean;
   created_by: string;
   created_by_user: string | null;
@@ -121,6 +123,10 @@ export interface DatabaseSupplement {
   supplement_ingredients: SupplementIngredient[];
 }
 
+/**
+ * Public supplements list (verified/system).
+ * Safe for SEO/public pages.
+ */
 export async function getSupplements(): Promise<DatabaseSupplement[]> {
   const { data, error } = await supabase
     .from('supplements')
@@ -129,6 +135,27 @@ export async function getSupplements(): Promise<DatabaseSupplement[]> {
       supplement_ingredients (*)
     `)
     .eq('is_verified', true)
+    .order('brand')
+    .order('name');
+
+  if (error) throw error;
+  return (data ?? []) as DatabaseSupplement[];
+}
+
+/**
+ * User-facing supplements list (verified + user-created).
+ * Enables a truly customizable research/tracking experience.
+ */
+export async function getSupplementsForUser(): Promise<DatabaseSupplement[]> {
+  const userId = getDemoUserId();
+
+  const { data, error } = await supabase
+    .from('supplements')
+    .select(`
+      *,
+      supplement_ingredients (*)
+    `)
+    .or(`is_verified.eq.true,created_by_user.eq.${userId}`)
     .order('brand')
     .order('name');
 
@@ -160,6 +187,29 @@ export async function searchSupplements(query: string) {
     .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
     .order('name')
     .limit(20);
+
+  if (error) throw error;
+  return data;
+}
+
+export async function searchSupplementsForUser(query: string) {
+  const userId = getDemoUserId();
+
+  const { data, error } = await supabase
+    .from('supplements')
+    .select(`
+      *,
+      supplement_ingredients (*)
+    `)
+    .or(
+      [
+        `name.ilike.%${query}%`,
+        `brand.ilike.%${query}%`,
+      ].join(',')
+    )
+    .or(`is_verified.eq.true,created_by_user.eq.${userId}`)
+    .order('name')
+    .limit(50);
 
   if (error) throw error;
   return data;

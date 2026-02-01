@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Moon, ChevronLeft, ChevronRight, Trash2, Loader2 } from "lucide-react";
+import { Moon, ChevronLeft, ChevronRight, Trash2, Loader2, MoonStar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { MetricCard } from "@/components/ui/metric-card";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   useSleepLogByDate,
   useSleepLogs,
@@ -170,82 +173,50 @@ export default function SleepTrackerPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-sleep-100 flex items-center justify-center">
-          <Moon className="w-5 h-5 text-sleep-600" />
-        </div>
-        <h1 className="text-2xl font-bold">Sleep Tracker</h1>
-      </div>
+      <PageHeader title="Sleep Tracker" />
 
       {/* Weekly Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            {statsLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-sleep-600">
-                  {(stats.averageDuration / 60).toFixed(1)}h
-                </p>
-                <p className="text-xs text-gray-500">Avg Duration</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            {statsLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
-            ) : (
-              <>
-                <p className="text-2xl font-bold">
-                  {stats.averageQuality.toFixed(1)}
-                </p>
-                <p className="text-xs text-gray-500">Avg Quality</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            {statsLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
-            ) : (
-              <>
-                <p className="text-2xl font-bold">
-                  {Math.round(stats.consistency)}%
-                </p>
-                <p className="text-xs text-gray-500">Consistency</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <MetricCard
+          label="Avg Duration"
+          value={statsLoading ? "..." : `${(stats.averageDuration / 60).toFixed(1)}h`}
+          icon={<Moon className="w-5 h-5" />}
+        />
+        <MetricCard
+          label="Avg Quality"
+          value={statsLoading ? "..." : stats.averageQuality.toFixed(1)}
+        />
+        <MetricCard
+          label="Consistency"
+          value={statsLoading ? "..." : `${Math.round(stats.consistency)}%`}
+        />
       </div>
 
       {/* Date Navigation */}
-      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
-        <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
-          <ChevronLeft className="w-5 h-5" />
-        </Button>
-        <span className="font-medium">
-          {isToday
-            ? "Today"
-            : new Date(selectedDate).toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigateDate(1)}
-          disabled={isToday}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Button>
-      </div>
+      <Card className="!p-3">
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <span className="font-medium text-slate-900 dark:text-slate-100">
+            {isToday
+              ? "Today"
+              : new Date(selectedDate).toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigateDate(1)}
+            disabled={isToday}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </Button>
+        </div>
+      </Card>
 
       {/* Sleep Log Form */}
       <Card>
@@ -258,7 +229,7 @@ export default function SleepTrackerPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-destructive"
+                className="text-red-500 hover:text-red-600"
                 onClick={handleDelete}
                 disabled={deleteLog.isPending}
               >
@@ -275,17 +246,18 @@ export default function SleepTrackerPage() {
         <CardContent className="space-y-6">
           {logLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
             </div>
           ) : (
             <>
               {/* Time Inputs */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-500">
+                  <label htmlFor="bedtime-input" className="text-sm font-medium text-slate-600 dark:text-slate-300">
                     Bedtime
                   </label>
                   <Input
+                    id="bedtime-input"
                     type="time"
                     value={bedtime}
                     onChange={(e) => setBedtime(e.target.value)}
@@ -293,10 +265,11 @@ export default function SleepTrackerPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-500">
+                  <label htmlFor="waketime-input" className="text-sm font-medium text-slate-600 dark:text-slate-300">
                     Wake Time
                   </label>
                   <Input
+                    id="waketime-input"
                     type="time"
                     value={wakeTime}
                     onChange={(e) => setWakeTime(e.target.value)}
@@ -306,43 +279,44 @@ export default function SleepTrackerPage() {
               </div>
 
               {/* Duration Display */}
-              <div className="text-center py-4 bg-sleep-50 rounded-lg">
-                <p className="text-3xl font-bold text-sleep-700">
+              <div className="text-center py-4 bg-sleep-50 dark:bg-sleep-900/20 rounded-2xl">
+                <p className="text-3xl font-bold text-sleep-700 dark:text-sleep-400">
                   {hours}h {minutes}m
                 </p>
-                <p className="text-sm text-sleep-600">Total Sleep</p>
+                <p className="text-sm text-sleep-600 dark:text-sleep-500">Total Sleep</p>
               </div>
 
               {/* Quality Slider */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-500">
+                  <label htmlFor="quality-slider" className="text-sm font-medium text-slate-600 dark:text-slate-300">
                     Sleep Quality
                   </label>
                   <Badge
-                    variant={quality >= 4 ? "success" : quality >= 3 ? "default" : "warning"}
+                    variant={quality >= 4 ? "success" : quality >= 3 ? "secondary" : "warning"}
                   >
                     {QUALITY_LABELS[quality.toString()]}
                   </Badge>
                 </div>
                 <Slider
+                  id="quality-slider"
                   min={1}
                   max={5}
                   step={1}
                   value={quality}
                   onValueChange={(value) => setQuality(value as SleepQuality)}
                 />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
                   <span>Poor</span>
                   <span>Excellent</span>
                 </div>
               </div>
 
               {/* Sleep Factors */}
-              <div>
-                <label className="text-sm font-medium text-gray-500 mb-2 block">
+              <div role="group" aria-labelledby="factors-label">
+                <span id="factors-label" className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2 block">
                   Factors (optional)
-                </label>
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {SLEEP_FACTORS.map((factor) => (
                     <button
@@ -351,8 +325,8 @@ export default function SleepTrackerPage() {
                       className={cn(
                         "px-3 py-1.5 rounded-full text-sm font-medium transition-colors",
                         factors.includes(factor.value)
-                          ? "bg-sleep-600 text-white"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-100/80"
+                          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                       )}
                     >
                       {factor.label}
@@ -363,14 +337,15 @@ export default function SleepTrackerPage() {
 
               {/* Notes */}
               <div>
-                <label className="text-sm font-medium text-gray-500">
+                <label htmlFor="sleep-notes" className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   Notes (optional)
                 </label>
                 <textarea
+                  id="sleep-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="How did you feel when you woke up?"
-                  className="mt-1 w-full min-h-[80px] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  className="mt-1 w-full min-h-[80px] rounded-2xl border border-black/10 bg-white/70 backdrop-blur-sm px-4 py-3 text-sm text-slate-900 dark:border-white/10 dark:bg-slate-800/70 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
                 />
               </div>
 
@@ -398,12 +373,15 @@ export default function SleepTrackerPage() {
         <CardContent>
           {recentLogsLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
             </div>
           ) : recentLogs.length === 0 ? (
-            <p className="text-center text-gray-500 py-4">
-              No sleep logs this week
-            </p>
+            <EmptyState
+              icon={MoonStar}
+              title="No sleep data yet"
+              description="Start tracking your sleep to discover patterns and improve your rest."
+              className="py-4"
+            />
           ) : (
             <ul className="space-y-2">
               {[...recentLogs]
@@ -415,22 +393,22 @@ export default function SleepTrackerPage() {
                   return (
                     <li
                       key={log.id}
-                      className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0"
+                      className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800 last:border-0"
                     >
                       <div>
-                        <p className="font-medium">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">
                           {new Date(log.date).toLocaleDateString("en-US", {
                             weekday: "short",
                             month: "short",
                             day: "numeric",
                           })}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           {log.bedtime} - {log.wake_time}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">
                           {Math.floor(dur / 60)}h {dur % 60}m
                         </p>
                         <Badge
@@ -438,7 +416,7 @@ export default function SleepTrackerPage() {
                             qualityNum >= 4
                               ? "success"
                               : qualityNum >= 3
-                              ? "default"
+                              ? "secondary"
                               : "warning"
                           }
                           className="text-xs"
@@ -460,17 +438,14 @@ export default function SleepTrackerPage() {
 function SleepSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gray-100 animate-pulse" />
-        <div className="h-8 w-40 bg-gray-100 rounded animate-pulse" />
-      </div>
+      <div className="h-10 w-48 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
       <div className="grid grid-cols-3 gap-4">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse" />
+          <div key={i} className="h-24 bg-slate-100 dark:bg-slate-800 rounded-[20px] animate-pulse" />
         ))}
       </div>
-      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
-      <div className="h-96 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-14 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
+      <div className="h-96 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
     </div>
   );
 }

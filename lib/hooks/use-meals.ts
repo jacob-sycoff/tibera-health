@@ -14,7 +14,12 @@ import {
   addMealItem,
   updateMealItem,
   deleteMealItem,
+  type MealLog,
+  type MealItem,
 } from '@/lib/supabase/queries';
+
+// Re-export types for consumers
+export type { MealLog, MealItem };
 
 // ============================================
 // MEAL LOGS

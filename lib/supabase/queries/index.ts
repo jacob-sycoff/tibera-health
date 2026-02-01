@@ -8,10 +8,12 @@
 
 // Reference data (no auth needed)
 export * from './reference';
+export * from './categories';
 
 // User data (requires auth in production)
 export * from './profile';
 export * from './meals';
+export * from './meal-plans';
 export * from './sleep';
 export * from './symptoms';
 export * from './supplements';

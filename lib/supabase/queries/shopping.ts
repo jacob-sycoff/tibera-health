@@ -310,3 +310,82 @@ export async function addItemsFromMealPlan(
   if (error) throw error;
   return data;
 }
+
+// ============================================
+// GENERATE FROM MEAL PLAN
+// ============================================
+
+export async function generateShoppingListFromPlan(
+  startDate: string,
+  endDate: string,
+  listName?: string
+): Promise<ShoppingList> {
+  const userId = getDemoUserId();
+
+  // Get planned meals in the date range
+  const { data: plans } = await supabase
+    .from('meal_plans')
+    .select('id')
+    .eq('user_id', userId);
+
+  if (!plans || plans.length === 0) {
+    throw new Error('No meal plans found');
+  }
+
+  const planIds = plans.map(p => p.id);
+
+  const { data: plannedMeals, error: mealsError } = await supabase
+    .from('planned_meals')
+    .select(`
+      *,
+      food:foods (
+        name
+      )
+    `)
+    .in('meal_plan_id', planIds)
+    .gte('date', startDate)
+    .lte('date', endDate);
+
+  if (mealsError) throw mealsError;
+
+  if (!plannedMeals || plannedMeals.length === 0) {
+    throw new Error('No planned meals found in this date range');
+  }
+
+  // Create a new shopping list
+  const list = await createShoppingList(
+    listName || `Shopping List (${startDate} - ${endDate})`,
+    true
+  );
+
+  // Aggregate items (combine same foods)
+  const itemMap = new Map<string, { name: string; quantity: number }>();
+
+  for (const meal of plannedMeals) {
+    const foodName = meal.custom_food_name || meal.food?.name || 'Unknown food';
+    const existing = itemMap.get(foodName);
+    if (existing) {
+      existing.quantity += meal.servings;
+    } else {
+      itemMap.set(foodName, {
+        name: foodName,
+        quantity: meal.servings,
+      });
+    }
+  }
+
+  // Add items to the list
+  const items = Array.from(itemMap.values()).map(item => ({
+    name: item.name,
+    quantity: item.quantity,
+    unit: 'serving(s)',
+    category: 'food',
+  }));
+
+  if (items.length > 0) {
+    await addItemsFromMealPlan(list.id, planIds[0], items);
+  }
+
+  // Return the updated list
+  return getShoppingListById(list.id) as Promise<ShoppingList>;
+}

@@ -29,6 +29,59 @@ interface ScannedIngredient {
   form?: string;
 }
 
+interface DietaryAttributes {
+  // Testing & Quality
+  thirdPartyTested?: boolean;
+  thirdPartyTesters?: string[];  // e.g., ["NSF", "USP", "ConsumerLab", "IFOS"]
+  cgmpCertified?: boolean;
+  heavyMetalsTested?: boolean;
+
+  // Dietary Restrictions
+  vegetarian?: boolean;
+  vegan?: boolean;
+  meatFree?: boolean;
+  porkFree?: boolean;
+  shellfishFree?: boolean;
+  fishFree?: boolean;
+
+  // Gelatin/Capsule Type
+  gelatinFree?: boolean;
+  animalGelatinFree?: boolean;
+  usesVegetarianCapsule?: boolean;
+  usesFishGelatin?: boolean;
+  usesPorkGelatin?: boolean;
+  usesBeefGelatin?: boolean;
+  capsuleType?: string;  // e.g., "vegetable cellulose", "fish gelatin", "bovine gelatin"
+
+  // Religious Certifications
+  kosher?: boolean;
+  kosherCertifier?: string;
+  halal?: boolean;
+  halalCertifier?: string;
+
+  // Allergen-Free Claims
+  glutenFree?: boolean;
+  dairyFree?: boolean;
+  soyFree?: boolean;
+  nutFree?: boolean;
+  eggFree?: boolean;
+  cornFree?: boolean;
+
+  // Other Certifications
+  nonGMO?: boolean;
+  organic?: boolean;
+  organicCertifier?: string;
+  sustainablySourced?: boolean;
+
+  // Pregnancy/Nursing
+  pregnancySafe?: boolean;
+  nursingSafe?: boolean;
+
+  // Additional
+  madeInUSA?: boolean;
+  countryOfOrigin?: string;
+}
+
 interface ScannedSupplement {
   name: string;
   brand: string | null;
@@ -39,6 +92,7 @@ interface ScannedSupplement {
   allergens: string[];
   warnings: string[];
   certifications: string[];
+  dietaryAttributes: DietaryAttributes;
   confidence: number;
   productUrl?: string;
 }
@@ -49,17 +103,26 @@ interface ScannedSupplement {
 
 const EXTRACTION_PROMPT = `You are an expert supplement product analyzer. Your task is to extract structured supplement data from e-commerce product pages.
 
-Analyze the following HTML content from a supplement product page and extract ALL supplement information you can find.
+Analyze the following content from a supplement product page and extract ALL supplement information you can find.
+
+The content is organized into sections:
+- STRUCTURED DATA: JSON-LD or JavaScript product data (most reliable if present)
+- COLLAPSED/ACCORDION CONTENT: Content from hidden accordion panels like "Supplement Facts"
+- PAGE CONTENT: The main HTML content
 
 IMPORTANT INSTRUCTIONS:
-1. Extract the EXACT values shown - do not estimate or round
-2. Pay attention to units: mcg, mg, g, IU, etc.
-3. Note the specific FORMS of nutrients when listed (e.g., "Vitamin B12 as Methylcobalamin")
-4. Look for supplement facts panels, ingredient lists, product descriptions
-5. Extract % Daily Value when shown
-6. List ALL other/inactive ingredients
-7. Note any allergen warnings, certifications, or badges
-8. The HTML may be messy - extract what you can identify
+1. Check ALL sections - supplement facts are often in COLLAPSED/ACCORDION CONTENT
+2. Extract the EXACT values shown - do not estimate or round
+3. Pay attention to units: mcg, mg, g, IU, etc.
+4. Note the specific FORMS of nutrients when listed (e.g., "Vitamin B12 as Methylcobalamin")
+5. Look for supplement facts panels, ingredient lists, product descriptions
+6. Extract % Daily Value when shown
+7. List ALL other/inactive ingredients
+8. Note any allergen warnings, certifications, or badges
+9. CAREFULLY analyze capsule/softgel ingredients to determine gelatin type
+10. Look for religious certifications (Kosher, Halal) and dietary claims (vegan, vegetarian)
+11. Look for third-party testing logos/claims (NSF, USP, ConsumerLab, IFOS, etc.)
+12. The HTML may be messy - extract what you can identify
 
 Return your analysis as a JSON object with this EXACT structure:
 {
@@ -79,10 +142,54 @@ Return your analysis as a JSON object with this EXACT structure:
   "otherIngredients": ["ingredient1", "ingredient2"],
   "allergens": ["allergen1", "allergen2"],
   "warnings": ["warning1", "warning2"],
-  "certifications": ["cert1", "cert2"]
+  "certifications": ["cert1", "cert2"],
+  "dietaryAttributes": {
+    "thirdPartyTested": boolean or null,
+    "thirdPartyTesters": ["NSF", "USP", etc.] or [],
+    "cgmpCertified": boolean or null,
+    "heavyMetalsTested": boolean or null,
+    "vegetarian": boolean or null,
+    "vegan": boolean or null,
+    "meatFree": boolean or null,
+    "porkFree": boolean or null,
+    "shellfishFree": boolean or null,
+    "fishFree": boolean or null,
+    "gelatinFree": boolean or null,
+    "animalGelatinFree": boolean or null,
+    "usesVegetarianCapsule": boolean or null,
+    "usesFishGelatin": boolean or null,
+    "usesPorkGelatin": boolean or null,
+    "usesBeefGelatin": boolean or null,
+    "capsuleType": "vegetable cellulose" | "fish gelatin" | "bovine gelatin" | "porcine gelatin" | null,
+    "kosher": boolean or null,
+    "kosherCertifier": "OU" | "OK" | "Star-K" | etc. or null,
+    "halal": boolean or null,
+    "halalCertifier": string or null,
+    "glutenFree": boolean or null,
+    "dairyFree": boolean or null,
+    "soyFree": boolean or null,
+    "nutFree": boolean or null,
+    "eggFree": boolean or null,
+    "cornFree": boolean or null,
+    "nonGMO": boolean or null,
+    "organic": boolean or null,
+    "organicCertifier": "USDA Organic" | etc. or null,
+    "sustainablySourced": boolean or null,
+    "pregnancySafe": boolean or null,
+    "nursingSafe": boolean or null,
+    "madeInUSA": boolean or null,
+    "countryOfOrigin": string or null
+  }
 }
 
-CRITICAL: Return ONLY the JSON object, no other text. Ensure all numbers are actual numbers, not strings.
+GELATIN DETECTION TIPS:
+- "gelatin" alone often means porcine (pig) gelatin
+- "fish gelatin" or "marine gelatin" = fish source
+- "bovine gelatin" = beef/cow source
+- "vegetable capsule", "hypromellose", "HPMC", "pullulan" = vegetarian
+- If product says "vegetarian" or "vegan", it uses non-animal capsules
+
+CRITICAL: Return ONLY the JSON object, no other text. Ensure all numbers are actual numbers, not strings. Use null for unknown values, not false.
 
 If this does not appear to be a supplement product page, return:
 {
@@ -93,23 +200,381 @@ HTML CONTENT:
 `;
 
 // ============================================
-// HTML CLEANING
+// IMAGE EXTRACTION PROMPT
+// ============================================
+
+const IMAGE_EXTRACTION_PROMPT = `You are an expert supplement label reader. Analyze this product image and extract ALL supplement information visible.
+
+Look for:
+1. Supplement Facts panel
+2. Ingredient lists (including capsule/softgel type - gelatin source)
+3. Serving size and servings per container
+4. % Daily Value
+5. Other ingredients
+6. Allergen warnings
+7. Certifications (NSF, USP, GMP, Non-GMO, Kosher, Halal, etc.)
+8. Dietary claims (Vegan, Vegetarian, Gluten-Free, etc.)
+9. Third-party testing seals
+
+Return your analysis as a JSON object with this EXACT structure:
+{
+  "name": "Full product name",
+  "brand": "Brand name or null if not found",
+  "servingSize": "Serving size as written (e.g., '2 capsules', '1 tablet')",
+  "servingsPerContainer": number or null,
+  "ingredients": [
+    {
+      "name": "Nutrient name (e.g., 'Vitamin D3')",
+      "amount": numeric_value,
+      "unit": "unit string (mcg, mg, IU, etc.)",
+      "dailyValue": percentage_number_or_null,
+      "form": "specific form if listed (e.g., 'Cholecalciferol') or null"
+    }
+  ],
+  "otherIngredients": ["ingredient1", "ingredient2"],
+  "allergens": ["allergen1", "allergen2"],
+  "warnings": ["warning1", "warning2"],
+  "certifications": ["cert1", "cert2"],
+  "dietaryAttributes": {
+    "thirdPartyTested": boolean or null,
+    "thirdPartyTesters": [] or ["NSF", "USP", "IFOS", etc.],
+    "cgmpCertified": boolean or null,
+    "vegetarian": boolean or null,
+    "vegan": boolean or null,
+    "gelatinFree": boolean or null,
+    "usesFishGelatin": boolean or null,
+    "usesPorkGelatin": boolean or null,
+    "usesBeefGelatin": boolean or null,
+    "usesVegetarianCapsule": boolean or null,
+    "capsuleType": string or null,
+    "kosher": boolean or null,
+    "kosherCertifier": string or null,
+    "halal": boolean or null,
+    "glutenFree": boolean or null,
+    "dairyFree": boolean or null,
+    "soyFree": boolean or null,
+    "nonGMO": boolean or null,
+    "organic": boolean or null,
+    "madeInUSA": boolean or null
+  }
+}
+
+GELATIN TIPS: "gelatin" alone = likely porcine; "fish gelatin" = fish; "bovine" = beef; "vegetable capsule/HPMC" = vegetarian
+
+CRITICAL: Return ONLY the JSON object, no other text. Use null for unknown values.
+
+If no supplement information is visible, return:
+{"noSupplementInfo": true}`;
+
+// ============================================
+// IMAGE URL EXTRACTION
+// ============================================
+
+function extractImageUrls(html: string, baseUrl: string): string[] {
+  const imageUrls: string[] = [];
+
+  // Match img src attributes
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = imgRegex.exec(html)) !== null) {
+    imageUrls.push(match[1]);
+  }
+
+  // Match data-src (lazy loading)
+  const dataSrcRegex = /data-src=["']([^"']+)["']/gi;
+  while ((match = dataSrcRegex.exec(html)) !== null) {
+    imageUrls.push(match[1]);
+  }
+
+  // Match srcset
+  const srcsetRegex = /srcset=["']([^"']+)["']/gi;
+  while ((match = srcsetRegex.exec(html)) !== null) {
+    const srcset = match[1];
+    const urls = srcset.split(',').map(s => s.trim().split(' ')[0]);
+    imageUrls.push(...urls);
+  }
+
+  // Match background-image urls
+  const bgRegex = /background-image:\s*url\(['"]?([^'")\s]+)['"]?\)/gi;
+  while ((match = bgRegex.exec(html)) !== null) {
+    imageUrls.push(match[1]);
+  }
+
+  // Convert relative URLs to absolute and filter
+  const base = new URL(baseUrl);
+  const absoluteUrls = imageUrls
+    .map(url => {
+      try {
+        if (url.startsWith('//')) return `https:${url}`;
+        if (url.startsWith('/')) return `${base.origin}${url}`;
+        if (url.startsWith('http')) return url;
+        return new URL(url, baseUrl).href;
+      } catch {
+        return null;
+      }
+    })
+    .filter((url): url is string => url !== null);
+
+  // Filter for likely product images (larger images, supplement-related keywords)
+  const productImages = absoluteUrls.filter(url => {
+    const lower = url.toLowerCase();
+    // Skip tiny icons, tracking pixels, logos
+    if (lower.includes('icon') || lower.includes('logo') || lower.includes('pixel')) return false;
+    if (lower.includes('1x1') || lower.includes('spacer')) return false;
+    // Prefer larger images and product-related terms
+    const isLikelyProduct =
+      lower.includes('product') ||
+      lower.includes('supplement') ||
+      lower.includes('label') ||
+      lower.includes('facts') ||
+      lower.includes('large') ||
+      lower.includes('main') ||
+      lower.includes('primary') ||
+      /\d{3,}x\d{3,}/.test(lower); // dimensions like 500x500
+    return isLikelyProduct || !lower.includes('thumb');
+  });
+
+  // Deduplicate and limit
+  return [...new Set(productImages)].slice(0, 5);
+}
+
+// ============================================
+// FETCH IMAGE AS BASE64
+// ============================================
+
+async function fetchImageAsBase64(imageUrl: string): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'image/*',
+      },
+    });
+
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    if (!contentType.startsWith('image/')) return null;
+
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+
+    // Skip tiny images (likely icons)
+    if (buffer.byteLength < 10000) return null; // Less than 10KB
+
+    // Map content type to Anthropic's expected format
+    let mediaType = contentType.split(';')[0].trim();
+    if (mediaType === 'image/jpg') mediaType = 'image/jpeg';
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(mediaType)) return null;
+
+    return { base64, mediaType };
+  } catch {
+    return null;
+  }
+}
+
+// ============================================
+// ANALYZE IMAGES WITH VISION
+// ============================================
+
+async function analyzeImageWithModel(
+  imageData: { base64: string; mediaType: string },
+  model: string,
+  anthropicClient: Anthropic
+): Promise<ScannedSupplement | null> {
+  try {
+    const response = await anthropicClient.messages.create({
+      model,
+      max_tokens: 2048, // Reduced - supplement JSON is typically small
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: imageData.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                data: imageData.base64,
+              },
+            },
+            {
+              type: 'text',
+              text: IMAGE_EXTRACTION_PROMPT,
+            },
+          ],
+        },
+      ],
+    });
+
+    const textContent = response.content.find(c => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') return null;
+
+    let jsonText = textContent.text.trim();
+    if (jsonText.startsWith('```json')) jsonText = jsonText.slice(7);
+    if (jsonText.startsWith('```')) jsonText = jsonText.slice(3);
+    if (jsonText.endsWith('```')) jsonText = jsonText.slice(0, -3);
+    jsonText = jsonText.trim();
+
+    const data = JSON.parse(jsonText);
+
+    // Skip if no supplement info found
+    if (data.noSupplementInfo) return null;
+
+    // Check if we got useful data (at least 3 ingredients for a good extraction)
+    if (data.ingredients && data.ingredients.length >= 3) {
+      return data as ScannedSupplement;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error analyzing image with ${model}:`, error);
+    return null;
+  }
+}
+
+async function analyzeImagesForSupplementData(
+  imageUrls: string[],
+  anthropicClient: Anthropic
+): Promise<ScannedSupplement | null> {
+  for (const imageUrl of imageUrls) {
+    const imageData = await fetchImageAsBase64(imageUrl);
+    if (!imageData) continue;
+
+    // Try Haiku first (much cheaper)
+    console.log('Trying image analysis with Haiku...');
+    let result = await analyzeImageWithModel(imageData, 'claude-haiku-4-5-20251001', anthropicClient);
+
+    if (result) {
+      console.log(`Haiku found ${result.ingredients.length} ingredients from image`);
+      return result;
+    }
+
+    // Fall back to Sonnet only if Haiku didn't get good results
+    console.log('Haiku failed, trying Sonnet for image...');
+    result = await analyzeImageWithModel(imageData, 'claude-sonnet-4-20250514', anthropicClient);
+
+    if (result) {
+      console.log(`Sonnet found ${result.ingredients.length} ingredients from image`);
+      return result;
+    }
+  }
+
+  return null;
+}
+
+// ============================================
+// EXTRACT STRUCTURED DATA (JSON-LD, etc.)
+// ============================================
+
+function extractStructuredData(html: string): string {
+  const structuredData: string[] = [];
+
+  // Extract JSON-LD (Schema.org data - often contains product info)
+  const jsonLdRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = jsonLdRegex.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      structuredData.push(`JSON-LD Product Data: ${JSON.stringify(data, null, 2)}`);
+    } catch {
+      // Invalid JSON, skip
+    }
+  }
+
+  // Extract Shopify product JSON (common pattern)
+  const shopifyProductRegex = /var\s+product\s*=\s*(\{[\s\S]*?\});/i;
+  const shopifyMatch = html.match(shopifyProductRegex);
+  if (shopifyMatch) {
+    try {
+      structuredData.push(`Shopify Product Data: ${shopifyMatch[1]}`);
+    } catch {
+      // Skip
+    }
+  }
+
+  // Look for window.__INITIAL_STATE__ or similar
+  const initialStateRegex = /window\.__(?:INITIAL_STATE__|PRELOADED_STATE__|APP_STATE__)__?\s*=\s*(\{[\s\S]*?\});/i;
+  const stateMatch = html.match(initialStateRegex);
+  if (stateMatch) {
+    structuredData.push(`Initial State Data: ${stateMatch[1].substring(0, 5000)}`);
+  }
+
+  return structuredData.join('\n\n');
+}
+
+// ============================================
+// EXTRACT ACCORDION/COLLAPSED CONTENT
+// ============================================
+
+function extractCollapsedContent(html: string): string {
+  const collapsedContent: string[] = [];
+
+  // Common accordion patterns - extract content even if hidden
+  // Look for elements with aria-hidden, hidden attribute, or display:none that contain supplement-related text
+
+  // Pattern 1: Elements with hidden/collapsed classes but containing supplement facts
+  const hiddenPanelRegex = /<(?:div|section|article)[^>]*(?:class="[^"]*(?:hidden|collapsed|accordion|panel|tab-content|details)[^"]*"|hidden|aria-hidden="true")[^>]*>([\s\S]*?)<\/(?:div|section|article)>/gi;
+  let match;
+  while ((match = hiddenPanelRegex.exec(html)) !== null) {
+    const content = match[1];
+    // Only include if it looks like it might have supplement info
+    if (/supplement|vitamin|mineral|serving|daily.?value|amount|mcg|mg\b/i.test(content)) {
+      collapsedContent.push(content);
+    }
+  }
+
+  // Pattern 2: Details/summary elements (HTML5 accordion)
+  const detailsRegex = /<details[^>]*>([\s\S]*?)<\/details>/gi;
+  while ((match = detailsRegex.exec(html)) !== null) {
+    collapsedContent.push(match[1]);
+  }
+
+  // Pattern 3: Elements with data-content or data-accordion-content
+  const dataContentRegex = /data-(?:content|accordion-content|panel-content|tab-content)=["']([^"']+)["']/gi;
+  while ((match = dataContentRegex.exec(html)) !== null) {
+    try {
+      // Sometimes content is HTML-encoded
+      const decoded = match[1]
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"');
+      collapsedContent.push(decoded);
+    } catch {
+      // Skip
+    }
+  }
+
+  return collapsedContent.join('\n\n');
+}
+
+// ============================================
+// HTML CLEANING (keeps hidden content!)
 // ============================================
 
 function cleanHtml(html: string): string {
-  // Remove script tags and their contents
-  let cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  // First, extract structured data and collapsed content BEFORE cleaning
+  const structuredData = extractStructuredData(html);
+  const collapsedContent = extractCollapsedContent(html);
 
-  // Remove style tags and their contents
+  // Remove script tags BUT keep their text content if it contains product data
+  let cleaned = html;
+
+  // Remove non-data scripts
+  cleaned = cleaned.replace(/<script(?![^>]*type=["']application\/ld\+json["'])[^>]*>[\s\S]*?<\/script>/gi, '');
+
+  // Remove style tags
   cleaned = cleaned.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
 
   // Remove comments
   cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
 
-  // Remove nav, header, footer elements (usually not product info)
-  cleaned = cleaned.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, '');
-  cleaned = cleaned.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, '');
-  cleaned = cleaned.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, '');
+  // Remove nav, header, footer (but NOT if they contain supplement keywords)
+  cleaned = cleaned.replace(/<nav\b[^>]*>(?![\s\S]*(?:supplement|vitamin|ingredient))[\s\S]*?<\/nav>/gi, '');
+  cleaned = cleaned.replace(/<footer\b[^>]*>(?![\s\S]*(?:supplement|vitamin|ingredient))[\s\S]*?<\/footer>/gi, '');
 
   // Remove SVG content
   cleaned = cleaned.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '');
@@ -117,22 +582,33 @@ function cleanHtml(html: string): string {
   // Remove noscript tags
   cleaned = cleaned.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
 
-  // Remove inline styles and event handlers
-  cleaned = cleaned.replace(/\s*style="[^"]*"/gi, '');
+  // IMPORTANT: Do NOT remove hidden/display:none elements - they may contain accordion content!
+  // Only remove inline event handlers
   cleaned = cleaned.replace(/\s*on\w+="[^"]*"/gi, '');
 
-  // Remove data attributes
-  cleaned = cleaned.replace(/\s*data-[a-z-]+="[^"]*"/gi, '');
+  // Keep data attributes that might contain content
+  // Only remove tracking-related data attributes
+  cleaned = cleaned.replace(/\s*data-(?:track|analytics|gtm|ga|pixel)[a-z-]*="[^"]*"/gi, '');
 
   // Collapse whitespace
   cleaned = cleaned.replace(/\s+/g, ' ');
 
-  // Truncate if too long (keep first 50KB which should have product info)
-  if (cleaned.length > 50000) {
-    cleaned = cleaned.substring(0, 50000);
+  // Prepend extracted structured data and collapsed content
+  let result = '';
+  if (structuredData) {
+    result += `\n\n=== STRUCTURED DATA ===\n${structuredData}\n\n`;
+  }
+  if (collapsedContent) {
+    result += `\n\n=== COLLAPSED/ACCORDION CONTENT ===\n${collapsedContent}\n\n`;
+  }
+  result += `\n\n=== PAGE CONTENT ===\n${cleaned}`;
+
+  // Truncate if too long (keep first 80KB to accommodate extra data)
+  if (result.length > 80000) {
+    result = result.substring(0, 80000);
   }
 
-  return cleaned.trim();
+  return result.trim();
 }
 
 // ============================================
@@ -219,10 +695,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call Claude to extract data
+    // Call Claude Haiku first (much cheaper - ~10x less than Sonnet)
+    // Reduced max_tokens since supplement JSON is typically small
     const claudeResponse = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
       messages: [
         {
           role: 'user',
@@ -277,12 +754,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // If we didn't get enough ingredients from text, try analyzing images
+    const hasGoodIngredientData = extractedData.ingredients && extractedData.ingredients.length >= 3;
+
+    if (!hasGoodIngredientData) {
+      console.log('Text extraction found few/no ingredients, trying image analysis...');
+
+      // Extract image URLs from the page
+      const imageUrls = extractImageUrls(html, url);
+      console.log(`Found ${imageUrls.length} potential product images`);
+
+      if (imageUrls.length > 0) {
+        const imageData = await analyzeImagesForSupplementData(imageUrls, anthropic);
+
+        if (imageData && imageData.ingredients && imageData.ingredients.length > 0) {
+          console.log(`Image analysis found ${imageData.ingredients.length} ingredients`);
+
+          // Merge with text data (prefer image data for ingredients, text for name/brand if missing)
+          extractedData = {
+            ...extractedData,
+            ...imageData,
+            name: imageData.name || extractedData.name,
+            brand: imageData.brand || extractedData.brand,
+          };
+        }
+      }
+    }
+
     // Validate required fields
-    if (!extractedData.name || !extractedData.ingredients) {
+    if (!extractedData.name || !extractedData.ingredients || extractedData.ingredients.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Could not extract supplement information. Please ensure the URL points to a supplement product page.',
+          error: 'Could not extract supplement information from text or images. Please ensure the URL points to a supplement product page with visible ingredient information.',
           data: extractedData,
         },
         { status: 422 }
@@ -295,6 +799,12 @@ export async function POST(request: NextRequest) {
     extractedData.allergens = extractedData.allergens || [];
     extractedData.warnings = extractedData.warnings || [];
     extractedData.certifications = extractedData.certifications || [];
+    extractedData.dietaryAttributes = extractedData.dietaryAttributes || {};
+
+    // Ensure dietaryAttributes arrays exist
+    if (extractedData.dietaryAttributes) {
+      extractedData.dietaryAttributes.thirdPartyTesters = extractedData.dietaryAttributes.thirdPartyTesters || [];
+    }
 
     // Clean up ingredients - ensure numeric values
     extractedData.ingredients = extractedData.ingredients.map(ing => ({

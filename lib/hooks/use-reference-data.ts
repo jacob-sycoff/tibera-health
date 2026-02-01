@@ -10,11 +10,13 @@ import {
   getSymptoms,
   getSymptomsByCategory,
   getHealthConditions,
-  getSupplements,
+  getSupplementsForUser,
   getSupplementById,
-  searchSupplements,
+  searchSupplementsForUser,
   getFoods,
   searchFoods,
+  getSymptomCategories,
+  getShoppingCategories,
 } from '@/lib/supabase/queries';
 
 // ============================================
@@ -78,7 +80,7 @@ export function useHealthConditionsList() {
 export function useSupplementsList() {
   return useQuery({
     queryKey: ['supplements', 'list'],
-    queryFn: getSupplements,
+    queryFn: getSupplementsForUser,
     staleTime: 5 * 60 * 1000, // 5 minutes (can have user supplements)
   });
 }
@@ -95,7 +97,7 @@ export function useSupplement(id: string | null) {
 export function useSupplementSearch(query: string) {
   return useQuery({
     queryKey: ['supplements', 'search', query],
-    queryFn: () => searchSupplements(query),
+    queryFn: () => searchSupplementsForUser(query),
     staleTime: 30 * 1000, // 30 seconds
     enabled: query.length >= 2,
   });
@@ -119,5 +121,25 @@ export function useFoodSearch(query: string) {
     queryFn: () => searchFoods(query),
     staleTime: 30 * 1000,
     enabled: query.length >= 2,
+  });
+}
+
+// ============================================
+// CATEGORIES
+// ============================================
+
+export function useSymptomCategories() {
+  return useQuery({
+    queryKey: ['categories', 'symptoms'],
+    queryFn: getSymptomCategories,
+    staleTime: Infinity, // Categories rarely change
+  });
+}
+
+export function useShoppingCategories() {
+  return useQuery({
+    queryKey: ['categories', 'shopping'],
+    queryFn: getShoppingCategories,
+    staleTime: Infinity, // Categories rarely change
   });
 }

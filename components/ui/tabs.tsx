@@ -55,7 +55,7 @@ function TabsList({
   return (
     <div
       className={cn(
-        "inline-flex h-10 items-center justify-center rounded-md bg-gray-100 p-1 text-gray-600",
+        "inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] bg-slate-100 p-1 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
         className
       )}
       role="tablist"
@@ -86,8 +86,10 @@ function TabsTrigger({
       role="tab"
       aria-selected={isActive}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        isActive && "bg-white text-gray-900 shadow-sm",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-[var(--radius-md)] px-4 py-1.5 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300",
+        isActive
+          ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+          : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
         className
       )}
       onClick={() => context.onValueChange(value)}
@@ -116,7 +118,10 @@ function TabsContent({
   return (
     <div
       role="tabpanel"
-      className={cn("mt-2 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2", className)}
+      className={cn(
+        "mt-4 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 animate-fade-in dark:ring-offset-slate-950",
+        className
+      )}
       {...props}
     >
       {children}

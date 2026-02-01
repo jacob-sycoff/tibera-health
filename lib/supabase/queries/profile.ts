@@ -122,16 +122,55 @@ export async function upsertGoals(goals: {
   fat?: number;
   fiber?: number;
   custom_nutrients?: Record<string, number>;
+  customNutrients?: Record<string, number>;
 }) {
   const userId = getDemoUserId();
+
+  const { customNutrients: camelCustom, custom_nutrients: snakeCustom, ...rest } = goals;
+  const customNutrients = snakeCustom ?? camelCustom ?? undefined;
 
   const { data, error } = await supabase
     .from('user_goals')
     .upsert({
       user_id: userId,
-      ...goals,
+      ...rest,
+      ...(customNutrients !== undefined ? { custom_nutrients: customNutrients } : {}),
       updated_at: new Date().toISOString(),
     })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============================================
+// GOAL EVENT HISTORY
+// ============================================
+
+export async function insertGoalEvent(event: {
+  event_type: 'micronutrient_set' | 'micronutrient_remove' | 'macros_saved';
+  nutrient_key?: string | null;
+  amount?: number | null;
+  unit?: string | null;
+  prev_amount?: number | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const userId = getDemoUserId();
+
+  const payload = {
+    user_id: userId,
+    event_type: event.event_type,
+    nutrient_key: event.nutrient_key ?? null,
+    amount: event.amount ?? null,
+    unit: event.unit ?? null,
+    prev_amount: event.prev_amount ?? null,
+    metadata: event.metadata ?? {},
+  };
+
+  const { data, error } = await supabase
+    .from('user_goal_events')
+    .insert(payload)
     .select()
     .single();
 
@@ -148,10 +187,7 @@ export async function getUserHealthConditions() {
 
   const { data, error } = await supabase
     .from('user_health_conditions')
-    .select(`
-      *,
-      condition:health_conditions!condition_code (*)
-    `)
+    .select('*')
     .eq('user_id', userId)
     .is('ended_at', null);
 

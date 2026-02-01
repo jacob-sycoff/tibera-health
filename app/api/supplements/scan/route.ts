@@ -28,6 +28,44 @@ interface ScannedIngredient {
   form?: string;
 }
 
+interface DietaryAttributes {
+  thirdPartyTested?: boolean;
+  thirdPartyTesters?: string[];
+  cgmpCertified?: boolean;
+  heavyMetalsTested?: boolean;
+  vegetarian?: boolean;
+  vegan?: boolean;
+  meatFree?: boolean;
+  porkFree?: boolean;
+  shellfishFree?: boolean;
+  fishFree?: boolean;
+  gelatinFree?: boolean;
+  animalGelatinFree?: boolean;
+  usesVegetarianCapsule?: boolean;
+  usesFishGelatin?: boolean;
+  usesPorkGelatin?: boolean;
+  usesBeefGelatin?: boolean;
+  capsuleType?: string;
+  kosher?: boolean;
+  kosherCertifier?: string;
+  halal?: boolean;
+  halalCertifier?: string;
+  glutenFree?: boolean;
+  dairyFree?: boolean;
+  soyFree?: boolean;
+  nutFree?: boolean;
+  eggFree?: boolean;
+  cornFree?: boolean;
+  nonGMO?: boolean;
+  organic?: boolean;
+  organicCertifier?: string;
+  sustainablySourced?: boolean;
+  pregnancySafe?: boolean;
+  nursingSafe?: boolean;
+  madeInUSA?: boolean;
+  countryOfOrigin?: string;
+}
+
 interface ScannedSupplement {
   name: string;
   brand: string | null;
@@ -38,6 +76,7 @@ interface ScannedSupplement {
   allergens: string[];
   warnings: string[];
   certifications: string[];
+  dietaryAttributes: DietaryAttributes;
   confidence: number;
   rawText?: string;
 }
@@ -56,8 +95,11 @@ IMPORTANT INSTRUCTIONS:
 3. Note the specific FORMS of nutrients when listed (e.g., "Vitamin B12 as Methylcobalamin")
 4. Extract % Daily Value when shown
 5. List ALL other ingredients exactly as written
-6. Note any allergen warnings or certifications
-7. If something is unclear or partially visible, include it with a note
+6. CAREFULLY check capsule/softgel ingredients to determine gelatin type
+7. Note any allergen warnings or certifications
+8. Look for dietary certifications: Kosher, Halal, Vegan, Vegetarian, Non-GMO, Organic
+9. Look for third-party testing seals: NSF, USP, ConsumerLab, IFOS, etc.
+10. If something is unclear or partially visible, include it with a note
 
 Return your analysis as a JSON object with this EXACT structure:
 {
@@ -78,19 +120,45 @@ Return your analysis as a JSON object with this EXACT structure:
   "allergens": ["allergen1", "allergen2"],
   "warnings": ["warning1", "warning2"],
   "certifications": ["cert1", "cert2"],
+  "dietaryAttributes": {
+    "thirdPartyTested": boolean or null,
+    "thirdPartyTesters": ["NSF", "USP", etc.] or [],
+    "cgmpCertified": boolean or null,
+    "vegetarian": boolean or null,
+    "vegan": boolean or null,
+    "gelatinFree": boolean or null,
+    "usesFishGelatin": boolean or null,
+    "usesPorkGelatin": boolean or null,
+    "usesBeefGelatin": boolean or null,
+    "usesVegetarianCapsule": boolean or null,
+    "capsuleType": "vegetable cellulose" | "fish gelatin" | "bovine gelatin" | "porcine gelatin" | null,
+    "kosher": boolean or null,
+    "kosherCertifier": string or null,
+    "halal": boolean or null,
+    "glutenFree": boolean or null,
+    "dairyFree": boolean or null,
+    "soyFree": boolean or null,
+    "nonGMO": boolean or null,
+    "organic": boolean or null,
+    "madeInUSA": boolean or null
+  },
   "rawText": "All visible text on the label for reference"
 }
 
-CRITICAL: Return ONLY the JSON object, no other text. Ensure all numbers are actual numbers, not strings.
+GELATIN DETECTION:
+- "gelatin" alone typically means porcine (pig) gelatin
+- "fish gelatin" or "marine gelatin" = fish source
+- "bovine gelatin" = beef/cow source
+- "vegetable capsule", "hypromellose", "HPMC", "pullulan" = vegetarian capsule
+- If product is labeled "vegetarian" or "vegan", it uses non-animal capsules
+
+CRITICAL: Return ONLY the JSON object, no other text. Ensure all numbers are actual numbers, not strings. Use null for unknown values.
 
 Common unit conversions to be aware of (but don't convert, just recognize):
 - mcg = micrograms = µg
 - mg = milligrams
 - g = grams
 - IU = International Units
-- mcg RAE = Retinol Activity Equivalents
-- mcg DFE = Dietary Folate Equivalents
-- mg NE = Niacin Equivalents
 
 Common nutrient forms to look for:
 - Vitamin D: D3/Cholecalciferol, D2/Ergocalciferol
@@ -129,76 +197,70 @@ export async function POST(request: NextRequest) {
     const validMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     const mediaType = validMimeTypes.includes(mimeType) ? mimeType : 'image/jpeg';
 
-    // Call Claude Vision API
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
-                data: image,
+    // Helper to call Claude and parse response
+    async function tryExtraction(model: string): Promise<ScannedSupplement | null> {
+      const response = await anthropic.messages.create({
+        model,
+        max_tokens: 2048, // Reduced - supplement JSON is typically small
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+                  data: image,
+                },
               },
-            },
-            {
-              type: 'text',
-              text: EXTRACTION_PROMPT,
-            },
-          ],
-        },
-      ],
-    });
+              {
+                type: 'text',
+                text: EXTRACTION_PROMPT,
+              },
+            ],
+          },
+        ],
+      });
 
-    // Extract text content from response
-    const textContent = response.content.find(c => c.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
-      return NextResponse.json(
-        { success: false, error: 'No response from AI' },
-        { status: 500 }
-      );
+      const textContent = response.content.find(c => c.type === 'text');
+      if (!textContent || textContent.type !== 'text') return null;
+
+      try {
+        let jsonText = textContent.text.trim();
+        if (jsonText.startsWith('```json')) jsonText = jsonText.slice(7);
+        if (jsonText.startsWith('```')) jsonText = jsonText.slice(3);
+        if (jsonText.endsWith('```')) jsonText = jsonText.slice(0, -3);
+        jsonText = jsonText.trim();
+
+        const data = JSON.parse(jsonText) as ScannedSupplement;
+
+        // Check if we got good data (at least 3 ingredients)
+        if (data.name && data.ingredients && data.ingredients.length >= 3) {
+          return data;
+        }
+        return null;
+      } catch {
+        return null;
+      }
     }
 
-    // Parse JSON response
-    let extractedData: ScannedSupplement;
-    try {
-      // Clean up the response - sometimes Claude includes markdown code blocks
-      let jsonText = textContent.text.trim();
-      if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.slice(7);
-      }
-      if (jsonText.startsWith('```')) {
-        jsonText = jsonText.slice(3);
-      }
-      if (jsonText.endsWith('```')) {
-        jsonText = jsonText.slice(0, -3);
-      }
-      jsonText = jsonText.trim();
+    // Try Haiku first (much cheaper - ~10x less than Sonnet)
+    console.log('Trying label scan with Haiku...');
+    let extractedData = await tryExtraction('claude-haiku-4-5-20251001');
 
-      extractedData = JSON.parse(jsonText);
-    } catch (parseError) {
-      console.error('Failed to parse Claude response:', textContent.text);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Failed to parse extracted data. The image may be unclear or not a supplement label.',
-          rawResponse: textContent.text,
-        },
-        { status: 422 }
-      );
+    // Fall back to Sonnet if Haiku didn't get good results
+    if (!extractedData) {
+      console.log('Haiku failed, trying Sonnet...');
+      extractedData = await tryExtraction('claude-sonnet-4-20250514');
     }
 
     // Validate required fields
-    if (!extractedData.name || !extractedData.ingredients) {
+    if (!extractedData || !extractedData.name || !extractedData.ingredients) {
       return NextResponse.json(
         {
           success: false,
           error: 'Could not extract supplement information. Please ensure the image shows a clear supplement facts label.',
-          data: extractedData,
         },
         { status: 422 }
       );
@@ -210,6 +272,12 @@ export async function POST(request: NextRequest) {
     extractedData.allergens = extractedData.allergens || [];
     extractedData.warnings = extractedData.warnings || [];
     extractedData.certifications = extractedData.certifications || [];
+    extractedData.dietaryAttributes = extractedData.dietaryAttributes || {};
+
+    // Ensure dietaryAttributes arrays exist
+    if (extractedData.dietaryAttributes) {
+      extractedData.dietaryAttributes.thirdPartyTesters = extractedData.dietaryAttributes.thirdPartyTesters || [];
+    }
 
     // Clean up ingredients - ensure numeric values
     extractedData.ingredients = extractedData.ingredients.map(ing => ({

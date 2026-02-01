@@ -20,6 +20,73 @@ export interface ScannedIngredient {
   form?: string; // e.g., "methylcobalamin", "citrate", etc.
 }
 
+export interface DietaryAttributes {
+  // Testing & Quality
+  thirdPartyTested?: boolean;
+  thirdPartyTesters?: string[];  // e.g., ["NSF", "USP", "ConsumerLab", "IFOS"]
+  cgmpCertified?: boolean;
+  heavyMetalsTested?: boolean;
+
+  // Dietary Restrictions
+  vegetarian?: boolean;
+  vegan?: boolean;
+  meatFree?: boolean;
+  porkFree?: boolean;
+  shellfishFree?: boolean;
+  fishFree?: boolean;
+
+  // Gelatin/Capsule Type
+  gelatinFree?: boolean;
+  animalGelatinFree?: boolean;
+  usesVegetarianCapsule?: boolean;
+  usesFishGelatin?: boolean;
+  usesPorkGelatin?: boolean;
+  usesBeefGelatin?: boolean;
+  capsuleType?: string;  // e.g., "vegetable cellulose", "fish gelatin", "bovine gelatin"
+
+  // Religious Certifications
+  kosher?: boolean;
+  kosherCertifier?: string;
+  halal?: boolean;
+  halalCertifier?: string;
+
+  // Allergen-Free Claims
+  glutenFree?: boolean;
+  dairyFree?: boolean;
+  soyFree?: boolean;
+  nutFree?: boolean;
+  eggFree?: boolean;
+  cornFree?: boolean;
+
+  // Other Certifications
+  nonGMO?: boolean;
+  organic?: boolean;
+  organicCertifier?: string;
+  sustainablySourced?: boolean;
+
+  // Pregnancy/Nursing
+  pregnancySafe?: boolean;
+  nursingSafe?: boolean;
+
+  // Additional
+  madeInUSA?: boolean;
+  countryOfOrigin?: string;
+}
+
+// Valid supplement category types
+export const SUPPLEMENT_CATEGORIES = [
+  { value: "multivitamin", label: "Multivitamin / Prenatal" },
+  { value: "single", label: "Single Vitamin" },
+  { value: "mineral", label: "Mineral" },
+  { value: "herbal", label: "Herbal" },
+  { value: "amino", label: "Amino Acid" },
+  { value: "probiotic", label: "Probiotic" },
+  { value: "omega", label: "Omega / Fish Oil" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type SupplementCategory = typeof SUPPLEMENT_CATEGORIES[number]["value"];
+
 export interface ScannedSupplement {
   name: string;
   brand: string | null;
@@ -30,6 +97,8 @@ export interface ScannedSupplement {
   allergens: string[];
   warnings: string[];
   certifications: string[];
+  dietaryAttributes?: DietaryAttributes;
+  category?: SupplementCategory; // Inferred or user-selected category
   confidence: number; // 0-1 confidence score
   rawText?: string; // Original extracted text for debugging
 }
