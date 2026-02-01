@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blueprint Food Timeline (visual)</title>
+    <style>
+      :root {
+        --bg: transparent;
+        --card: rgba(255, 255, 255, 0.75);
+        --card2: rgba(248, 250, 252, 0.9);
+        --border: rgba(2, 6, 23, 0.12);
+        --text: #0f172a;
+        --muted: #475569;
+        --shadow: 0 12px 40px -24px rgba(2, 6, 23, 0.35);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --card: rgba(15, 23, 42, 0.65);
+          --card2: rgba(2, 6, 23, 0.75);
+          --border: rgba(255, 255, 255, 0.12);
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 14px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .title {
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        font-size: 16px;
+      }
+      .sub {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .grid {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      @media (min-width: 880px) {
+        .grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: linear-gradient(180deg, var(--card), var(--card2));
+        box-shadow: var(--shadow);
+        padding: 14px;
+        min-height: 120px;
+      }
+      .time {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 800;
+      }
+      .h {
+        margin-top: 8px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+      ul {
+        margin: 10px 0 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .note {
+        margin-top: 12px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+        padding: 14px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="title">Blueprint food routine (visual summary)</div>
+      <div class="sub">
+        A quick visual based on Bryan Johnson’s “Protocol” page. This is not medical advice; it’s a
+        readability layer on top of the source.
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="time">Early morning</div>
+          <div class="h">Breakfast (pre‑workout)</div>
+          <ul>
+            <li>Nutty pudding–style breakfast (protein + berries + fat)</li>
+            <li>Emphasis on repeatable routine</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="time">Late morning</div>
+          <div class="h">“Super Veggie” meal</div>
+          <ul>
+            <li>Legume base (e.g., lentils) + cruciferous veg</li>
+            <li>Flavor + acids + seeds + fermented foods</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="time">Noon</div>
+          <div class="h">Final meal of the day</div>
+          <ul>
+            <li>Example: stuffed sweet potato + beans + veg + healthy fats</li>
+            <li>Early cutoff (time‑restricted eating)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note">
+        Source: <a href="https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol" target="_blank" rel="noreferrer">Bryan Johnson’s Protocol</a>.
+        Details and quantities can change; always defer to the linked source and your clinician.
+      </div>
+    </div>
+
+    <script>
+      (function height() {
+        const send = () => {
+          try {
+            const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+            window.parent?.postMessage(
+              { type: "tibera:embed-height", id: "bj-blueprint-timeline", height: h },
+              window.location.origin
+            );
+          } catch {}
+        };
+        window.addEventListener("load", send);
+        window.addEventListener("resize", send);
+        if (typeof ResizeObserver !== "undefined") {
+          const ro = new ResizeObserver(() => send());
+          ro.observe(document.documentElement);
+        }
+      })();
+    </script>
+  </body>
+</html>
+

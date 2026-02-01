@@ -442,3 +442,113 @@ export async function getSupplementStats(days: number = 7) {
     supplementCounts,
   };
 }
+
+// ============================================
+// PILL ORGANIZER
+// ============================================
+
+export interface PillOrganizerItem {
+  id: string;
+  user_id: string;
+  supplement_id: string;
+  sort_order: number;
+  created_at: string;
+  supplement: {
+    id: string;
+    name: string;
+    brand: string | null;
+    type: string;
+    serving_size: string | null;
+    supplement_ingredients: Array<{
+      id: string;
+      nutrient_name: string;
+      amount: number;
+      unit: string;
+      daily_value_percent: number | null;
+      form: string | null;
+      source: string | null;
+      notes: string | null;
+    }>;
+  };
+}
+
+export async function getPillOrganizerItems(): Promise<PillOrganizerItem[]> {
+  const userId = getDemoUserId();
+
+  const { data, error } = await supabase
+    .from('pill_organizer_items')
+    .select(`
+      *,
+      supplement:supplements (
+        id, name, brand, type, serving_size,
+        supplement_ingredients (*)
+      )
+    `)
+    .eq('user_id', userId)
+    .order('sort_order', { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as PillOrganizerItem[];
+}
+
+export async function addPillOrganizerItem(
+  supplementId: string
+): Promise<PillOrganizerItem> {
+  const userId = getDemoUserId();
+
+  // Get current max sort_order for this user
+  const { data: existing } = await supabase
+    .from('pill_organizer_items')
+    .select('sort_order')
+    .eq('user_id', userId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+
+  const nextOrder = (existing?.[0]?.sort_order ?? -1) + 1;
+
+  const { data, error } = await supabase
+    .from('pill_organizer_items')
+    .insert({
+      user_id: userId,
+      supplement_id: supplementId,
+      sort_order: nextOrder,
+    })
+    .select(`
+      *,
+      supplement:supplements (
+        id, name, brand, type, serving_size,
+        supplement_ingredients (*)
+      )
+    `)
+    .single();
+
+  if (error) throw error;
+  return data as PillOrganizerItem;
+}
+
+export async function removePillOrganizerItem(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('pill_organizer_items')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+export async function reorderPillOrganizerItems(
+  orderedIds: string[]
+): Promise<void> {
+  const userId = getDemoUserId();
+
+  const updates = orderedIds.map((id, index) =>
+    supabase
+      .from('pill_organizer_items')
+      .update({ sort_order: index })
+      .eq('id', id)
+      .eq('user_id', userId)
+  );
+
+  const results = await Promise.all(updates);
+  const firstError = results.find((r) => r.error);
+  if (firstError?.error) throw firstError.error;
+}

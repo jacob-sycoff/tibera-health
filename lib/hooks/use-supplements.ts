@@ -13,7 +13,12 @@ import {
   deleteSupplementLog,
   createUserSupplement,
   getSupplementStats,
+  getPillOrganizerItems,
+  addPillOrganizerItem,
+  removePillOrganizerItem,
+  reorderPillOrganizerItems,
 } from '@/lib/supabase/queries';
+import type { PillOrganizerItem } from '@/lib/supabase/queries/supplements';
 
 // ============================================
 // SUPPLEMENT LOGS
@@ -130,4 +135,66 @@ export function useSupplementStats(days: number = 7) {
 export function useTodaysSupplements() {
   const today = new Date().toISOString().split('T')[0];
   return useSupplementLogsByDate(today);
+}
+
+// ============================================
+// PILL ORGANIZER
+// ============================================
+
+export function usePillOrganizerItems() {
+  return useQuery({
+    queryKey: ['pill-organizer'],
+    queryFn: getPillOrganizerItems,
+  });
+}
+
+export function useAddPillOrganizerItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: addPillOrganizerItem,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pill-organizer'] });
+    },
+  });
+}
+
+export function useRemovePillOrganizerItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: removePillOrganizerItem,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pill-organizer'] });
+    },
+  });
+}
+
+export function useReorderPillOrganizerItems() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: reorderPillOrganizerItems,
+    onMutate: async (orderedIds: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ['pill-organizer'] });
+      const previous = queryClient.getQueryData<PillOrganizerItem[]>(['pill-organizer']);
+
+      if (previous) {
+        const reordered = orderedIds
+          .map((id) => previous.find((item) => item.id === id))
+          .filter(Boolean) as PillOrganizerItem[];
+        queryClient.setQueryData(['pill-organizer'], reordered);
+      }
+
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['pill-organizer'], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['pill-organizer'] });
+    },
+  });
 }

@@ -57,6 +57,7 @@ import { IngredientList } from "@/components/supplements/ingredient-list";
 import { SupplementCard } from "@/components/supplements/supplement-card";
 import { SupplementDetailModal } from "@/components/supplements/supplement-detail-modal";
 import { QuickLogModal } from "@/components/supplements/quick-log-modal";
+import { PillOrganizer } from "@/components/supplements/pill-organizer";
 import { useToast } from "@/components/ui/toast";
 
 // Type for dietary attributes stored in database
@@ -514,48 +515,11 @@ export default function SupplementsPage() {
           </div>
 
           {/* My Pill Organizer */}
-          <Card className="rounded-[28px]">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">My Pill Organizer</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {supplementsLoading ? (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="w-6 h-6 animate-spin text-slate-400 dark:text-slate-500" />
-                </div>
-              ) : databaseSupplements.length === 0 ? (
-                <EmptyState
-                  icon={Pill}
-                  title="No supplements yet"
-                  description="Add your first supplement to start tracking."
-                  className="py-4"
-                />
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {databaseSupplements.slice(0, 8).map((supplement) => {
-                    const displayName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
-                    const taken = takenSupplements.has(displayName);
-                    return (
-                      <button
-                        key={supplement.id}
-                        onClick={() => !taken && quickLog(supplement)}
-                        disabled={taken || createLog.isPending}
-                        className={cn(
-                          "flex items-center justify-between p-3 rounded-2xl text-left transition-colors border",
-                          taken
-                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                            : "border-[color:var(--glass-border)] bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}
-                      >
-                        <span className="font-medium text-sm truncate">{supplement.name}</span>
-                        {taken && <Check className="w-4 h-4 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <PillOrganizer
+            takenSupplements={takenSupplements}
+            onQuickLog={quickLog}
+            isLogging={createLog.isPending}
+          />
 
           {/* Today's Supplements */}
           <Card className="rounded-[28px]">

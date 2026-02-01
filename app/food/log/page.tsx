@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Minus, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Minus, Check, Loader2, Camera } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,6 +120,14 @@ export default function LogFoodPage() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <h1 className="text-2xl font-bold">Log Food</h1>
+        <div className="ml-auto">
+          <Link href="/food/log/photo">
+            <Button variant="outline">
+              <Camera className="w-4 h-4 mr-2" />
+              Log from Photo
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Date & Meal Type Selection */}

@@ -72,6 +72,50 @@ function renderSection(section: FoodGuide["sections"][number]) {
             ))}
           </div>
         ) : null}
+        {section.quotes && section.quotes.length > 0 ? (
+          <div className="pt-3 border-t border-black/5 space-y-2">
+            <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              Quotes
+            </p>
+            <div className="grid gap-2">
+              {section.quotes.map((q) => (
+                <blockquote
+                  key={q.quote}
+                  className="rounded-2xl border border-black/10 bg-white p-4"
+                >
+                  <p className="text-slate-800 italic">“{q.quote}”</p>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                    <a href={q.url} target="_blank" rel="noreferrer" className="hover:underline">
+                      {q.sourceLabel}
+                    </a>
+                    {q.note ? <span>{q.note}</span> : null}
+                  </div>
+                </blockquote>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {section.images && section.images.length > 0 ? (
+          <div className="pt-3 border-t border-black/5 space-y-3">
+            <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              Images
+            </p>
+            {section.images.map((img) => (
+              <figure
+                key={img.src}
+                className="overflow-hidden rounded-2xl border border-black/10 bg-white"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.src} alt={img.alt} className="w-full h-auto" />
+                {img.caption ? (
+                  <figcaption className="px-4 py-3 border-t border-black/5 text-xs text-slate-600">
+                    {img.caption}
+                  </figcaption>
+                ) : null}
+              </figure>
+            ))}
+          </div>
+        ) : null}
         {section.links && section.links.length > 0 ? (
           <div className="pt-3 border-t border-black/5 space-y-2">
             <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">

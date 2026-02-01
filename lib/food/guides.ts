@@ -17,6 +17,17 @@ export interface FoodGuideSection {
     url: string;
     note?: string;
   }>;
+  quotes?: Array<{
+    quote: string;
+    sourceLabel: string;
+    url: string;
+    note?: string;
+  }>;
+  images?: Array<{
+    src: string;
+    alt: string;
+    caption?: string;
+  }>;
   embeds?: Array<{
     title: string;
     src: string;
@@ -166,6 +177,205 @@ export const FOOD_GUIDES: FoodGuide[] = [
           "Be careful with claims that a single ingredient is “toxic” without dose/context (and without reliable sources).",
           "Food safety still matters: cook beans thoroughly; be cautious with high-risk foods in pregnancy/immunocompromise.",
           "If a philosophy increases anxiety, cost, or social isolation, simplify the rules and focus on consistent basics.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "bryan-johnson-blueprint",
+    title: "Bryan Johnson (Blueprint): food guide",
+    description:
+      "A skimmable overview of Bryan Johnson’s current Blueprint food routine (as published), with quotes, visuals, and practical ways to adapt it.",
+    tags: ["nutrition", "evidence", "ultra_processed"],
+    sections: [
+      {
+        id: "sources",
+        title: "Sources (what this guide is based on)",
+        paragraphs: [
+          "This guide is based on Bryan Johnson’s publicly posted “Protocol” page. It can change over time; treat the source links as canonical.",
+          "Reviewed: Feb 1, 2026.",
+        ],
+        links: [
+          {
+            label: "Bryan Johnson’s Protocol (Blueprint) — primary source",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol",
+            note: "Includes a Nutrition section plus an hour-by-hour daily schedule with meals.",
+          },
+          {
+            label: "Bryan Johnson on X (updates)",
+            url: "https://x.com/bryan_johnson",
+            note: "Posts may require login; use for updates/clarifications.",
+          },
+        ],
+        callouts: [
+          {
+            tone: "info",
+            title: "How to read this page",
+            bullets: [
+              "Quotes are exact text snippets from the source page (linked).",
+              "Everything else is a simplified interpretation for usability.",
+              "Not medical advice; don’t copy caloric restriction or supplements without clinician guidance.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "social",
+        title: "Social media context (informal, but useful)",
+        paragraphs: [
+          "Social posts are often shorthand, humor, or commentary. Treat them as context and always defer to the Protocol page for specifics.",
+        ],
+        quotes: [
+          {
+            quote: "100k likes and I’ll eat a fast food meal",
+            sourceLabel: "Bryan Johnson on X (Aug 17, 2025)",
+            url: "https://x.com/bryan_johnson/status/1957123449970913310",
+            note: "Social posts are not a protocol; use as context only.",
+          },
+        ],
+      },
+      {
+        id: "core-idea",
+        title: "Core idea (in his words)",
+        quotes: [
+          {
+            quote:
+              "My philosophy on nutrition is that every calorie must fight for its life.",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Nutrition section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol#nutrition",
+          },
+          {
+            quote:
+              "I don’t identify with any of them. I follow the scientific evidence and data in determining what I eat.",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Nutrition section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol#nutrition",
+            note: "Context: he’s referring to diet “camps”.",
+          },
+        ],
+        paragraphs: [
+          "In practice, this is a highly structured routine built around repeatable meals, measured biomarkers, and a strong bias toward whole, nutrient-dense foods (and away from highly processed foods).",
+        ],
+      },
+      {
+        id: "published-macros",
+        title: "Published daily targets (as posted)",
+        quotes: [
+          {
+            quote: "Calories: 2,250 (10% caloric restriction)",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Nutrition section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol#nutrition",
+          },
+          {
+            quote: "Protein: 130 grams (~25%)",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Nutrition section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol#nutrition",
+          },
+        ],
+        bullets: [
+          "Calories: 2,250 (listed as ~10% caloric restriction).",
+          "Protein: 130 g (~25%).",
+          "Carbs: 206 g (~35%).",
+          "Fat: 101 g (~40%).",
+        ],
+        callouts: [
+          {
+            tone: "warning",
+            title: "Caloric restriction isn’t a default recommendation",
+            bullets: [
+              "If you’re underweight, pregnant, an athlete, have an eating disorder history, or have medical conditions, don’t copy caloric restriction without clinician support.",
+              "Start with food quality and consistency first; adjust calories only with clear goals and feedback (weight, labs, symptoms).",
+            ],
+          },
+        ],
+      },
+      {
+        id: "meal-timing",
+        title: "Meal timing (early cutoff)",
+        quotes: [
+          {
+            quote:
+              "Eat your final meal/snack of the day four hours before bed. I stop eating around noon each day…",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Sleep section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol",
+            note: "Emphasis added; see original for full context.",
+          },
+          {
+            quote:
+              "Noon, my final meal of the day…",
+            sourceLabel: "Blueprint: Bryan Johnson’s Protocol (Daily schedule)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol",
+          },
+        ],
+        paragraphs: [
+          "A defining feature is time‑restricted eating with an early end-of-day cutoff. If you try this, the main risk is simply that it’s hard to meet calories/protein if your eating window is too short.",
+        ],
+        bullets: [
+          "If you want the sleep benefit without the intensity: try moving your last meal earlier by 1–2 hours first.",
+          "If you wake up hungry: increase dinner protein/fiber earlier in the day, or widen the eating window.",
+        ],
+      },
+      {
+        id: "visual",
+        title: "Visual summary",
+        embeds: [
+          {
+            title: "Blueprint food routine timeline (visual)",
+            src: "/guides/bryan-johnson-blueprint/meal-timeline.html",
+            caption:
+              "A simplified visual built from the Protocol page’s meal timing and meal examples.",
+            height: 520,
+          },
+        ],
+      },
+      {
+        id: "meals",
+        title: "Meal structure (examples from the schedule)",
+        paragraphs: [
+          "Blueprint’s food routine is built around repeatable templates. The specifics can change, but the structure is consistent: a structured breakfast, a legume-and-veg heavy meal, and a final meal built around vegetables/beans/healthy fats.",
+        ],
+        bullets: [
+          "Breakfast template: protein + berries + healthy fats (his schedule references a “nutty pudding” style meal).",
+          "Lunch template: a “Super Veggie” style meal built around lentils plus cruciferous vegetables and add-ons.",
+          "Final meal template: vegetables + beans/legumes + fats (example: stuffed sweet potato).",
+        ],
+      },
+      {
+        id: "food-guide-visual",
+        title: "The “Don’t Die” food guide visual (as posted)",
+        images: [
+          {
+            src: "https://cdn.shopify.com/s/files/1/0772/3129/2701/files/Screenshot_2026-01-12_at_1.04.48_PM.png?v=1768241236",
+            alt: "Blueprint longevity foods guide screenshot",
+            caption:
+              "Source: Bryan Johnson’s Protocol page (Nutrition section).",
+          },
+        ],
+        links: [
+          {
+            label: "Open the source page (Nutrition section)",
+            url: "https://blueprint.bryanjohnson.com/blogs/news/bryan-johnsons-protocol#nutrition",
+          },
+        ],
+      },
+      {
+        id: "adapt",
+        title: "How to adapt (without the extremes)",
+        bullets: [
+          "Keep the templates, not the brands: swap in any high-quality protein + berries + nuts/seeds; lentils + veg; beans + veg + fats.",
+          "Use biomarkers if you can (weight trend, BP, A1c, lipids, ferritin, B12, vitamin D), and iterate slowly.",
+          "Make the routine easy: batch-cook lentils/veg once or twice weekly; keep frozen veg and canned beans on hand.",
+        ],
+        callouts: [
+          {
+            tone: "tip",
+            title: "The 80/20 Blueprint-lite version",
+            bullets: [
+              "Eat mostly minimally processed foods.",
+              "Keep protein high enough to support your goals.",
+              "Move your last meal earlier by 1–2 hours.",
+              "Repeat 2–3 meals you like (consistency beats novelty).",
+            ],
+          },
         ],
       },
     ],
