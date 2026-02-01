@@ -359,16 +359,21 @@ export const FOOD_GUIDES: FoodGuide[] = [
       },
       {
         id: "adapt",
-        title: "How to adapt (without the extremes)",
+        title: "How to adapt (choose what you follow)",
+        paragraphs: [
+          "Some people want to follow Blueprint closely; others prefer to borrow a few ideas. Use the sources and the templates above, then choose the level of strictness that fits your life.",
+        ],
         bullets: [
-          "Keep the templates, not the brands: swap in any high-quality protein + berries + nuts/seeds; lentils + veg; beans + veg + fats.",
-          "Use biomarkers if you can (weight trend, BP, A1c, lipids, ferritin, B12, vitamin D), and iterate slowly.",
-          "Make the routine easy: batch-cook lentils/veg once or twice weekly; keep frozen veg and canned beans on hand.",
+          "Follow closely: replicate the meal timing and meal templates as written, then track outcomes over weeks.",
+          "Borrow selectively: keep the meal templates but adjust timing, calories, and ingredients to match your preferences.",
+          "Keep the templates, not the brands: swap in any protein + berries + nuts/seeds; lentils + veg; beans + veg + fats.",
+          "Use biomarkers if you can (weight trend, BP, A1c, lipids, ferritin, B12, vitamin D), and iterate.",
+          "Make it easy: batch-cook lentils/veg once or twice weekly; keep frozen veg and canned beans on hand.",
         ],
         callouts: [
           {
             tone: "tip",
-            title: "The 80/20 Blueprint-lite version",
+            title: "Option: a lighter-weight interpretation",
             bullets: [
               "Eat mostly minimally processed foods.",
               "Keep protein high enough to support your goals.",
