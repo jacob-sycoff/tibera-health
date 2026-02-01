@@ -2,25 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Utensils,
-  Calendar,
-  ShoppingCart,
-  Moon,
-  Activity,
-  Pill,
-  Settings,
-  LayoutDashboard,
-} from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-
-const navItems = [
-  { href: "/", label: "Home", icon: LayoutDashboard },
-  { href: "/food", label: "Food", icon: Utensils },
-  { href: "/planner", label: "Plan", icon: Calendar },
-  { href: "/sleep", label: "Sleep", icon: Moon },
-  { href: "/supplements", label: "Supps", icon: Pill },
-];
+import { appNavItems } from "@/components/layout/nav-items";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 interface NavigationProps {
   className?: string;
@@ -29,36 +13,73 @@ interface NavigationProps {
 export function Navigation({ className }: NavigationProps) {
   const pathname = usePathname();
 
-  return (
-    <nav
-      className={cn(
-        "fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200",
-        className
-      )}
-    >
-      <div className="flex items-center justify-around h-16 px-2">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href ||
-            (item.href !== "/" && pathname.startsWith(item.href));
-          const Icon = item.icon;
+  const isActivePath = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex flex-col items-center justify-center w-16 h-full gap-1 transition-colors",
-                isActive
-                  ? "text-primary-600"
-                  : "text-gray-500 hover:text-gray-900"
-              )}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="text-xs font-medium">{item.label}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
+  return (
+    <>
+      <nav className={cn("fixed inset-x-0 bottom-0 z-40", className)} aria-label="Primary navigation">
+        <div className="mx-auto max-w-md px-4 pb-[calc(12px+env(safe-area-inset-bottom))]">
+          <div
+            className={cn(
+              "rounded-[32px] border backdrop-blur-xl",
+              "bg-[var(--glass-bg)] border-[color:var(--glass-border)] shadow-[var(--glass-shadow)]",
+              "px-1 py-1"
+            )}
+          >
+            <div className="relative">
+              <div className="absolute -top-3 right-2">
+                <ThemeToggle
+                  size="icon-sm"
+                  variant="outline"
+                  className="shadow-[0_10px_30px_-18px_rgba(2,6,23,0.45)]"
+                />
+              </div>
+            <div className="grid grid-cols-5 items-stretch">
+              {appNavItems.map((item) => {
+                const isActive = isActivePath(item.href);
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "group relative flex flex-col items-center justify-center gap-1 rounded-[26px] px-2 py-2.5 transition-colors",
+                      isActive
+                        ? "text-slate-900 dark:text-slate-100"
+                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                    )}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute inset-0 rounded-[26px] transition-colors",
+                        isActive
+                          ? "bg-white/70 dark:bg-slate-800/60"
+                          : "bg-transparent group-hover:bg-white/40 dark:group-hover:bg-slate-800/40"
+                      )}
+                    />
+                    <Icon className={cn("relative h-5 w-5", isActive && "stroke-[2.5]")} />
+                    <span
+                      className={cn(
+                        "relative text-[11px] leading-none tracking-tight",
+                        isActive ? "font-semibold" : "font-medium"
+                      )}
+                    >
+                      {item.mobileLabel}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </>
   );
 }
