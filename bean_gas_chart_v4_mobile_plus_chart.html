@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Beans ranked by gas potential</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121824;
+    --panel2:#0f1520;
+    --text: #e8eef7;
+    --muted: #b7c2d1;
+    --grid: #2a3446;
+    --header: #1f4e79;
+    --accent: #ffd166;
+    --pill: rgba(255,255,255,0.06);
+  }
+  body {
+    margin: 0;
+    padding: 18px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.35;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  h1 {
+    margin: 0 0 8px 0;
+    font-size: 22px;
+    line-height: 1.2;
+    letter-spacing: .2px;
+  }
+  .meta { color: var(--muted); margin-bottom: 10px; font-size: 14px; }
+  .callout {
+    background: rgba(255, 209, 102, 0.10);
+    border: 1px solid rgba(255, 209, 102, 0.35);
+    padding: 12px 12px;
+    border-radius: 12px;
+    color: var(--text);
+    margin: 12px 0 16px 0;
+    font-size: 13px;
+  }
+  .callout ul { margin: 8px 0 0 18px; padding: 0; }
+  .table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .scroll { overflow: auto; max-height: 72vh; -webkit-overflow-scrolling: touch; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1450px;
+  }
+  th, td {
+    border-bottom: 1px solid var(--grid);
+    border-right: 1px solid var(--grid);
+    padding: 10px 10px;
+    vertical-align: top;
+    font-size: 13px;
+  }
+  td:last-child, th:last-child { border-right: none; }
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--header);
+    color: white;
+    text-align: left;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(odd) td { background: rgba(255,255,255,0.02); }
+
+  /* Mobile cards */
+  .cards { display: none; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--grid);
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .card-top {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .rank {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: rgba(31,78,121,0.55);
+    border: 1px solid rgba(31,78,121,0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+  }
+  .bean {
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 6px;
+  }
+  .sub { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    background: var(--pill);
+    border: 1px solid var(--grid);
+    color: var(--muted);
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  details {
+    border-top: 1px solid rgba(42,52,70,0.8);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--text);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  summary::-webkit-details-marker { display:none; }
+  summary:before {
+    content: "▸";
+    color: var(--accent);
+    display: inline-block;
+    transform: translateY(-1px);
+  }
+  details[open] summary:before { content: "▾"; }
+  .kv {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .kv .k {
+    display:block;
+    color: #d6e2f3;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  .kv .v {
+    display:block;
+    color: var(--muted);
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  .sources { margin-top: 14px; color: var(--muted); font-size: 13px; }
+  .sources a { color: #8ecae6; }
+
+  /* Responsive behavior: show cards on small screens, table on larger */
+  @media (max-width: 820px) {
+    body { padding: 14px; }
+    .table-wrap { display: none; }
+    .cards { display: block; }
+    h1 { font-size: 20px; }
+    .meta { font-size: 13px; }
+  }
+
+  /* Chart section */
+  .chart-wrap {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 12px;
+    padding: 12px;
+    margin-top: 14px;
+  }
+  .chart-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--grid);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn[aria-pressed="true"] {
+    background: rgba(142, 202, 230, 0.18);
+    border-color: rgba(142, 202, 230, 0.55);
+  }
+  .chart-area {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 10px;
+    border: 1px solid rgba(42,52,70,0.8);
+    background: rgba(255,255,255,0.02);
+    padding: 10px;
+  }
+  svg { min-width: 900px; }
+  .axis text, .axis { fill: var(--muted); font-size: 12px; }
+  .label { fill: var(--text); font-size: 12px; }
+  .bar { fill: rgba(142, 202, 230, 0.65); }
+  .bar2 { fill: rgba(255, 209, 102, 0.65); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  @media (max-width: 820px) {
+    svg { min-width: 720px; }
+  }
+
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Beans ranked by gas potential (least → most)</h1>
+    <div class="meta">Generated: <b>January 31, 2026</b> • Mobile view uses cards; desktop view uses a full table.</div>
+
+    <div class="callout">
+      <b>Phytoestrogen columns (kept exactly the same info as v2):</b>
+      <ul>
+        <li><b>Components (mg/100g)</b>: USDA-quantified compounds (Isoflavones + coumestrol/formononetin/biochanin A where reported) and the basis (cooked vs raw/dry).</li>
+        <li><b>Total (mg/100g)</b>: sum of the reported components (still limited to what USDA reports for that item).</li>
+        <li><b>Total per ½ cup</b>: only calculated when the basis is <b>cooked</b>; otherwise shown as “—”.</li>
+      </ul>
+    </div>
+
+    <!-- Desktop/tablet: table -->
+    <div class="table-wrap">
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Rank</th><th>Bean / legume</th><th>Gas (typical)</th><th>Pregnancy</th><th>Toxin / “nontoxic” concerns</th><th>Lectins</th><th>Phyto components (mg/100g)</th><th>Phyto total (mg/100g)</th><th>Total per ½ cup (~86g) (mg)</th><th>Phyto notes</th><th>Health benefits</th><th>Health downsides / watch-outs</th></tr></thead>
+          <tbody>
+<tr><td>1</td><td>Red/yellow split lentils</td><td>Least</td><td>Yes (well-cooked)</td><td>Generally safe when cooked.</td><td>Low–moderate; reduced by soaking + cooking.</td><td>Isoflavones: 0.06; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</td><td>0.06</td><td>—</td><td>Cooked serving will differ from dry/raw basis.</td><td>High fiber + folate; iron, magnesium.</td><td>Gas possible if portions jump fast.</td></tr>
+<tr><td>2</td><td>Mung beans</td><td>Very low</td><td>Yes (cooked mung beans).</td><td>Low concern when cooked.</td><td>Low; cooked is safest.</td><td>Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</td><td>0.01</td><td>0.01</td><td></td><td>Often easier to digest; good protein + fiber.</td><td>Avoid raw sprouts in pregnancy (bacterial risk); cooked beans are fine.</td></tr>
+<tr><td>3</td><td>Black-eyed peas (cowpeas)</td><td>Low</td><td>Yes (well-cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.01; Coumestrol: 0.01; Formononetin: NR; Biochanin A: 0.58; Basis: raw (dry)</td><td>0.60</td><td>—</td><td>Some compounds not reported for all foods; this total is USDA-reported items only.</td><td>Fiber + folate; potassium + magnesium.</td><td>Can still cause gas; higher FODMAP load for some.</td></tr>
+<tr><td>4</td><td>Chickpeas (garbanzo)</td><td>Low–moderate</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.02; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</td><td>0.02</td><td>0.02</td><td></td><td>Protein + fiber; satiety; folate.</td><td>Common gas trigger; large portions can bother IBS/FODMAP-sensitive people.</td></tr>
+<tr><td>5</td><td>Adzuki beans</td><td>Moderate</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.59; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</td><td>0.59</td><td>—</td><td>Dry/raw basis; cooked values may differ.</td><td>Fiber + minerals; plant protein.</td><td>Gas possible; sweetened pastes add sugar.</td></tr>
+<tr><td>6</td><td>Black beans</td><td>Moderate</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</td><td>0.01</td><td>—</td><td>Dry/raw basis; cooked values may differ.</td><td>High fiber; polyphenols; gut support.</td><td>Gas common; canned may be high sodium.</td></tr>
+<tr><td>7</td><td>Great Northern beans</td><td>Moderate–high</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: NR; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.60; Basis: raw (dry)</td><td>0.60</td><td>—</td><td>Isoflavones not listed for this specific item in USDA table; biochanin A shown.</td><td>High fiber/protein; mild flavor.</td><td>Higher gas potential; large portions can bloat.</td></tr>
+<tr><td>8</td><td>Navy beans</td><td>High</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.21; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.02; Basis: raw (dry)</td><td>0.23</td><td>—</td><td>Dry/raw basis; cooked values may differ.</td><td>Very high fiber; glycemic &amp; lipid support.</td><td>Often very gassy; start small.</td></tr>
+<tr><td>9</td><td>Pinto beans</td><td>High</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.18; Coumestrol: 1.80; Formononetin: NR; Biochanin A: 0.29; Basis: raw (dry)</td><td>2.27</td><td>—</td><td>Dry/raw basis; cooked values may differ.</td><td>Fiber + potassium; filling staple.</td><td>High gas potential.</td></tr>
+<tr><td>10</td><td>Pink beans</td><td>High</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: NR; Coumestrol: NR; Formononetin: 1.05; Biochanin A: NR; Basis: raw (dry)</td><td>1.05</td><td>—</td><td>Isoflavones not listed for this specific item in USDA table; formononetin shown.</td><td>Similar to pinto: fiber + minerals.</td><td>High gas potential.</td></tr>
+<tr><td>11</td><td>Split peas (green/yellow)</td><td>High</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate; reduced by cooking.</td><td>Isoflavones: 0.02; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</td><td>0.02</td><td>0.02</td><td>USDA also lists coumestrol + biochanin A for some raw split pea entries.</td><td>High fiber + protein; great in soups.</td><td>Often very gassy; add fluids.</td></tr>
+<tr><td>12</td><td>Small red beans</td><td>High</td><td>Yes (cooked).</td><td>Generally safe as food.</td><td>Moderate–high; reduced by cooking.</td><td>Isoflavones: 0.16; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</td><td>0.16</td><td>—</td><td>Dry/raw basis; cooked values may differ.</td><td>Fiber + minerals; hearty.</td><td>High gas potential; soak well, cook thoroughly.</td></tr>
+<tr><td>13</td><td>Red kidney beans</td><td>Most</td><td>Yes, ONLY fully cooked/boiled.</td><td>Main concern: PHA if undercooked; never slow-cook dry kidney beans.</td><td>High when raw; boiling reduces risk.</td><td>Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.41; Basis: cooked</td><td>0.42</td><td>0.36</td><td></td><td>Fiber + folate; satiety.</td><td>Undercooking can cause acute GI illness; can be very gassy.</td></tr>
+<tr><td>14</td><td>Soybeans / edamame</td><td>Most (many)</td><td>Generally yes in moderation (cooked).</td><td>Whole foods generally safe; avoid high-dose isoflavone supplements unless clinician-directed.</td><td>Moderate; reduced by cooking/fermentation.</td><td>Isoflavones: 65.11; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</td><td>65.11</td><td>55.99</td><td>Soy is the major dietary isoflavone source.</td><td>Complete protein; iron, folate, choline.</td><td>Gas; phytoestrogen load far higher than other legumes; discuss large intakes if thyroid issues.</td></tr>
+</tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Mobile: cards -->
+    <section class="cards">
+      
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#1</div>
+        <div class="title">
+          <div class="bean">Red/yellow split lentils</div>
+          <div class="sub">
+            <span class="pill">Gas: Least</span>
+            <span class="pill">Pregnancy: Yes (well-cooked)</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe when cooked.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Low–moderate; reduced by soaking + cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.06; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.06</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Cooked serving will differ from dry/raw basis.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">High fiber + folate; iron, magnesium.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Gas possible if portions jump fast.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#2</div>
+        <div class="title">
+          <div class="bean">Mung beans</div>
+          <div class="sub">
+            <span class="pill">Gas: Very low</span>
+            <span class="pill">Pregnancy: Yes (cooked mung beans).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Low concern when cooked.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Low; cooked is safest.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.01</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">0.01</span></div>
+          <div><span class="k">Notes</span><span class="v"></span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Often easier to digest; good protein + fiber.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Avoid raw sprouts in pregnancy (bacterial risk); cooked beans are fine.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#3</div>
+        <div class="title">
+          <div class="bean">Black-eyed peas (cowpeas)</div>
+          <div class="sub">
+            <span class="pill">Gas: Low</span>
+            <span class="pill">Pregnancy: Yes (well-cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.01; Coumestrol: 0.01; Formononetin: NR; Biochanin A: 0.58; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.60</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Some compounds not reported for all foods; this total is USDA-reported items only.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Fiber + folate; potassium + magnesium.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Can still cause gas; higher FODMAP load for some.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#4</div>
+        <div class="title">
+          <div class="bean">Chickpeas (garbanzo)</div>
+          <div class="sub">
+            <span class="pill">Gas: Low–moderate</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.02; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.02</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">0.02</span></div>
+          <div><span class="k">Notes</span><span class="v"></span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Protein + fiber; satiety; folate.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Common gas trigger; large portions can bother IBS/FODMAP-sensitive people.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#5</div>
+        <div class="title">
+          <div class="bean">Adzuki beans</div>
+          <div class="sub">
+            <span class="pill">Gas: Moderate</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.59; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.59</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Dry/raw basis; cooked values may differ.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Fiber + minerals; plant protein.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Gas possible; sweetened pastes add sugar.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#6</div>
+        <div class="title">
+          <div class="bean">Black beans</div>
+          <div class="sub">
+            <span class="pill">Gas: Moderate</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.01</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Dry/raw basis; cooked values may differ.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">High fiber; polyphenols; gut support.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Gas common; canned may be high sodium.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#7</div>
+        <div class="title">
+          <div class="bean">Great Northern beans</div>
+          <div class="sub">
+            <span class="pill">Gas: Moderate–high</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: NR; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.60; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.60</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Isoflavones not listed for this specific item in USDA table; biochanin A shown.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">High fiber/protein; mild flavor.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Higher gas potential; large portions can bloat.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#8</div>
+        <div class="title">
+          <div class="bean">Navy beans</div>
+          <div class="sub">
+            <span class="pill">Gas: High</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.21; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.02; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.23</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Dry/raw basis; cooked values may differ.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Very high fiber; glycemic &amp; lipid support.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Often very gassy; start small.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#9</div>
+        <div class="title">
+          <div class="bean">Pinto beans</div>
+          <div class="sub">
+            <span class="pill">Gas: High</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.18; Coumestrol: 1.80; Formononetin: NR; Biochanin A: 0.29; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">2.27</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Dry/raw basis; cooked values may differ.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Fiber + potassium; filling staple.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">High gas potential.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#10</div>
+        <div class="title">
+          <div class="bean">Pink beans</div>
+          <div class="sub">
+            <span class="pill">Gas: High</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: NR; Coumestrol: NR; Formononetin: 1.05; Biochanin A: NR; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">1.05</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Isoflavones not listed for this specific item in USDA table; formononetin shown.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Similar to pinto: fiber + minerals.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">High gas potential.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#11</div>
+        <div class="title">
+          <div class="bean">Split peas (green/yellow)</div>
+          <div class="sub">
+            <span class="pill">Gas: High</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.02; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.02</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">0.02</span></div>
+          <div><span class="k">Notes</span><span class="v">USDA also lists coumestrol + biochanin A for some raw split pea entries.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">High fiber + protein; great in soups.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Often very gassy; add fluids.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#12</div>
+        <div class="title">
+          <div class="bean">Small red beans</div>
+          <div class="sub">
+            <span class="pill">Gas: High</span>
+            <span class="pill">Pregnancy: Yes (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Generally safe as food.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate–high; reduced by cooking.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.16; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: raw (dry)</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.16</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">—</span></div>
+          <div><span class="k">Notes</span><span class="v">Dry/raw basis; cooked values may differ.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Fiber + minerals; hearty.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">High gas potential; soak well, cook thoroughly.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#13</div>
+        <div class="title">
+          <div class="bean">Red kidney beans</div>
+          <div class="sub">
+            <span class="pill">Gas: Most</span>
+            <span class="pill">Pregnancy: Yes, ONLY fully cooked/boiled.</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Main concern: PHA if undercooked; never slow-cook dry kidney beans.</span></div>
+          <div><span class="k">Lectins</span><span class="v">High when raw; boiling reduces risk.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 0.01; Coumestrol: NR; Formononetin: NR; Biochanin A: 0.41; Basis: cooked</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">0.42</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">0.36</span></div>
+          <div><span class="k">Notes</span><span class="v"></span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Fiber + folate; satiety.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Undercooking can cause acute GI illness; can be very gassy.</span></div>
+        </div>
+      </details>
+    </article>
+    
+
+    <article class="card">
+      <div class="card-top">
+        <div class="rank">#14</div>
+        <div class="title">
+          <div class="bean">Soybeans / edamame</div>
+          <div class="sub">
+            <span class="pill">Gas: Most (many)</span>
+            <span class="pill">Pregnancy: Generally yes in moderation (cooked).</span>
+          </div>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Safety & prep</summary>
+        <div class="kv">
+          <div><span class="k">Toxin / “nontoxic” concerns</span><span class="v">Whole foods generally safe; avoid high-dose isoflavone supplements unless clinician-directed.</span></div>
+          <div><span class="k">Lectins</span><span class="v">Moderate; reduced by cooking/fermentation.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Phytoestrogens</summary>
+        <div class="kv">
+          <div><span class="k">Components (mg/100g)</span><span class="v mono">Isoflavones: 65.11; Coumestrol: NR; Formononetin: NR; Biochanin A: NR; Basis: cooked</span></div>
+          <div><span class="k">Total (mg/100g)</span><span class="v">65.11</span></div>
+          <div><span class="k">Total per ½ cup (~86g) (mg)</span><span class="v">55.99</span></div>
+          <div><span class="k">Notes</span><span class="v">Soy is the major dietary isoflavone source.</span></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Health</summary>
+        <div class="kv">
+          <div><span class="k">Benefits</span><span class="v">Complete protein; iron, folate, choline.</span></div>
+          <div><span class="k">Downsides / watch-outs</span><span class="v">Gas; phytoestrogen load far higher than other legumes; discuss large intakes if thyroid issues.</span></div>
+        </div>
+      </details>
+    </article>
+    
+    </section>
+
+    
+    <h2>Chart view</h2>
+    <div class="chart-wrap">
+      <div class="chart-controls">
+        <button class="btn" id="btnGas" aria-pressed="true" type="button">Gas rank (1=least)</button>
+        <button class="btn" id="btnPhyto" aria-pressed="false" type="button">Phyto total (mg/100g)</button>
+      </div>
+      <div class="chart-area" id="chartArea" aria-label="Chart area"></div>
+      <div class="hint" id="chartHint">
+        Gas rank chart is always comparable (1–14). Phyto chart includes USDA totals (reported components only); basis (cooked vs raw/dry) is shown in tooltips.
+      </div>
+    </div>
+
+<div class="sources">
+      <b>Sources</b><br/>
+      • USDA ARS Isoflavone Database (Release 2.1 PDF):
+      <a href="https://www.ars.usda.gov/ARSUserFiles/80400525/Data/isoflav/Isoflav_R2-1.pdf">link</a><br/>
+      • FDA Natural toxins in food (lectins / kidney bean PHA context):
+      <a href="https://www.fda.gov/food/chemical-contaminants-pesticides/natural-toxins-food">link</a><br/>
+      • CDC pregnancy food safety (sprouts):
+      <a href="https://www.cdc.gov/food-safety/foods/pregnant-women.html">link</a><br/>
+    </div>
+  </div>
+
+<script>
+const DATA = [{"rank": 1, "bean": "Red/yellow split lentils", "gasRank": 1, "phytoTotal": 0.06, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.06"}, {"rank": 2, "bean": "Mung beans", "gasRank": 2, "phytoTotal": 0.01, "phytoBasis": "cooked", "phytoTotalStr": "0.01"}, {"rank": 3, "bean": "Black-eyed peas (cowpeas)", "gasRank": 3, "phytoTotal": 0.6, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.60"}, {"rank": 4, "bean": "Chickpeas (garbanzo)", "gasRank": 4, "phytoTotal": 0.02, "phytoBasis": "cooked", "phytoTotalStr": "0.02"}, {"rank": 5, "bean": "Adzuki beans", "gasRank": 5, "phytoTotal": 0.59, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.59"}, {"rank": 6, "bean": "Black beans", "gasRank": 6, "phytoTotal": 0.01, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.01"}, {"rank": 7, "bean": "Great Northern beans", "gasRank": 7, "phytoTotal": 0.6, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.60"}, {"rank": 8, "bean": "Navy beans", "gasRank": 8, "phytoTotal": 0.23, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.23"}, {"rank": 9, "bean": "Pinto beans", "gasRank": 9, "phytoTotal": 2.27, "phytoBasis": "raw (dry)", "phytoTotalStr": "2.27"}, {"rank": 10, "bean": "Pink beans", "gasRank": 10, "phytoTotal": 1.05, "phytoBasis": "raw (dry)", "phytoTotalStr": "1.05"}, {"rank": 11, "bean": "Split peas (green/yellow)", "gasRank": 11, "phytoTotal": 0.02, "phytoBasis": "cooked", "phytoTotalStr": "0.02"}, {"rank": 12, "bean": "Small red beans", "gasRank": 12, "phytoTotal": 0.16, "phytoBasis": "raw (dry)", "phytoTotalStr": "0.16"}, {"rank": 13, "bean": "Red kidney beans", "gasRank": 13, "phytoTotal": 0.42, "phytoBasis": "cooked", "phytoTotalStr": "0.42"}, {"rank": 14, "bean": "Soybeans / edamame", "gasRank": 14, "phytoTotal": 65.11, "phytoBasis": "cooked", "phytoTotalStr": "65.11"}];
+
+function barChart(opts) {
+  const title = opts.title;
+  const valueKey = opts.valueKey;
+  const colorClass = opts.colorClass;
+  const filterFn = opts.filterFn;
+  const valueFmt = opts.valueFmt;
+  const tooltipFn = opts.tooltipFn;
+
+  const rows = (filterFn ? DATA.filter(filterFn) : DATA.slice()).sort((a,b)=>a.rank-b.rank);
+  const max = Math.max(...rows.map(r => (r[valueKey] ?? 0)));
+  const w = 980;
+  const left = 260;
+  const right = 40;
+  const top = 30;
+  const rowH = 26;
+  const barH = 14;
+  const h = top + rows.length * rowH + 20;
+
+  const scale = (v) => {
+    const inner = w - left - right;
+    return inner * (v / (max || 1));
+  };
+
+  let svg = `
+  <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${title}" xmlns="http://www.w3.org/2000/svg">
+    <text x="0" y="18" class="label" font-weight="800">${title}</text>
+  `;
+
+  rows.forEach((r, i) => {
+    const y = top + i*rowH;
+    const v = r[valueKey];
+    const vw = (v == null) ? 0 : scale(v);
+    const label = `${r.rank}. ${r.bean}`;
+    const shown = (v == null) ? "NR" : valueFmt(v);
+    const tip = tooltipFn ? tooltipFn(r) : `${label}: ${shown}`;
+    svg += `
+      <title>${tip}</title>
+      <text x="0" y="${y+12}" class="label">${label}</text>
+      <rect x="${left}" y="${y}" width="${vw}" height="${barH}" rx="6" class="${colorClass}"></rect>
+      <text x="${left + vw + 8}" y="${y+12}" class="axis">${shown}</text>
+    `;
+  });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+function renderGas() {
+  document.getElementById('btnGas').setAttribute('aria-pressed','true');
+  document.getElementById('btnPhyto').setAttribute('aria-pressed','false');
+  const svg = barChart({
+    title: "Gas rank (1 = least gas → 14 = most gas)",
+    valueKey: "gasRank",
+    colorClass: "bar",
+    filterFn: null,
+    valueFmt: (v)=>String(v),
+    tooltipFn: (r)=> `${r.rank}. ${r.bean} — Gas rank: ${r.gasRank}`
+  });
+  document.getElementById('chartArea').innerHTML = svg;
+}
+
+function renderPhyto() {
+  document.getElementById('btnGas').setAttribute('aria-pressed','false');
+  document.getElementById('btnPhyto').setAttribute('aria-pressed','true');
+  const svg = barChart({
+    title: "Phytoestrogen total (mg/100g, USDA-reported components only)",
+    valueKey: "phytoTotal",
+    colorClass: "bar2",
+    filterFn: (r)=> r.phytoTotal !== null,
+    valueFmt: (v)=> v.toFixed(2),
+    tooltipFn: (r)=> `${r.rank}. ${r.bean} — Total: ${r.phytoTotalStr} mg/100g (basis: ${r.phytoBasis})`
+  });
+  document.getElementById('chartArea').innerHTML = svg;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const gasBtn = document.getElementById('btnGas');
+  const phytoBtn = document.getElementById('btnPhyto');
+  if (gasBtn && phytoBtn) {
+    gasBtn.addEventListener('click', renderGas);
+    phytoBtn.addEventListener('click', renderPhyto);
+    renderGas();
+  }
+});
+</script>
+
+</body>
+</html>

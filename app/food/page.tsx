@@ -2,16 +2,37 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NutrientBar } from "@/components/charts/nutrient-bar";
-import { useMealsStore, calculateDailyNutrients } from "@/lib/stores/meals";
-import { useProfileStore } from "@/lib/stores/profile";
-import { TRACKED_NUTRIENTS } from "@/lib/api/usda";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useMealLogsByDate, useDeleteMealItem, type MealLog } from "@/lib/hooks/use-meals";
+import { useEffectiveGoals } from "@/lib/hooks";
 import type { MealType } from "@/types";
+
+// Calculate daily nutrient totals from Supabase meal logs
+function calculateDailyNutrients(meals: MealLog[]): Record<string, number> {
+  const totals: Record<string, number> = {};
+
+  for (const meal of meals) {
+    for (const item of meal.meal_items) {
+      // Get nutrients from custom_food_nutrients (stored when logging USDA foods)
+      const customNutrients = item.custom_food_nutrients || {};
+
+      // Sum nutrients, multiplying by servings
+      for (const [id, amount] of Object.entries(customNutrients)) {
+        const numericAmount = typeof amount === 'number' ? amount : 0;
+        totals[id] = (totals[id] || 0) + (numericAmount * item.servings);
+      }
+    }
+  }
+
+  return totals;
+}
 
 const MEAL_TYPE_LABELS: Record<MealType, string> = {
   breakfast: "Breakfast",
@@ -24,22 +45,29 @@ const MEAL_TYPE_ORDER: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 
 export default function FoodTrackerPage() {
   const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState<"all" | "nutrients">("all");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
 
-  const { getMealsByDate, deleteMeal, removeItemFromMeal } = useMealsStore();
-  const { getAdjustedGoals } = useProfileStore();
+  const { data: meals = [], isLoading } = useMealLogsByDate(selectedDate);
+  const deleteMealItem = useDeleteMealItem();
+  const { goals } = useEffectiveGoals();
 
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    setActiveTab(urlParams.get("tab") === "nutrients" ? "nutrients" : "all");
     setMounted(true);
   }, []);
 
   if (!mounted) return <FoodTrackerSkeleton />;
 
-  const meals = getMealsByDate(selectedDate);
-  const goals = getAdjustedGoals();
   const dailyNutrients = calculateDailyNutrients(meals);
+
+  const goalMax = (usdaId: string, fallback: number) => {
+    const value = goals.customNutrients?.[usdaId];
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  };
 
   const navigateDate = (direction: number) => {
     const date = new Date(selectedDate);
@@ -61,37 +89,46 @@ export default function FoodTrackerPage() {
   };
 
   const getMealsByType = (type: MealType) => {
-    return meals.filter((meal) => meal.mealType === type);
+    return meals.filter((meal) => meal.meal_type === type);
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Food Tracker</h1>
-        <Link href="/food/log">
-          <Button>
-            <Plus className="w-4 h-4 mr-2" />
-            Log Food
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        title="Food Tracker"
+        action={
+          <div className="flex items-center gap-2">
+            <Link href="/food/guides">
+              <Button variant="outline">Guides</Button>
+            </Link>
+            <Link href="/food/log">
+              <Button>
+                <Plus className="w-4 h-4 mr-2" />
+                Log Food
+              </Button>
+            </Link>
+          </div>
+        }
+      />
 
       {/* Date Navigation */}
-      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
-        <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
-          <ChevronLeft className="w-5 h-5" />
-        </Button>
-        <span className="font-medium">{formatDate(selectedDate)}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigateDate(1)}
-          disabled={isToday}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Button>
-      </div>
+      <Card className="!p-3">
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="icon" onClick={() => navigateDate(-1)}>
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <span className="font-medium text-slate-900 dark:text-slate-100">{formatDate(selectedDate)}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigateDate(1)}
+            disabled={isToday}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </Button>
+        </div>
+      </Card>
 
       {/* Summary Card */}
       <Card>
@@ -101,28 +138,28 @@ export default function FoodTrackerPage() {
         <CardContent>
           <div className="grid grid-cols-4 gap-4 mb-4">
             <div className="text-center">
-              <p className="text-2xl font-bold text-primary-600">
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                 {Math.round(dailyNutrients["1008"] || 0)}
               </p>
-              <p className="text-xs text-gray-500">Calories</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Calories</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold">
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                 {Math.round(dailyNutrients["1003"] || 0)}g
               </p>
-              <p className="text-xs text-gray-500">Protein</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Protein</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold">
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                 {Math.round(dailyNutrients["1005"] || 0)}g
               </p>
-              <p className="text-xs text-gray-500">Carbs</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Carbs</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold">
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                 {Math.round(dailyNutrients["1004"] || 0)}g
               </p>
-              <p className="text-xs text-gray-500">Fat</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Fat</p>
             </div>
           </div>
 
@@ -136,95 +173,102 @@ export default function FoodTrackerPage() {
       </Card>
 
       {/* Meals by Type */}
-      <Tabs defaultValue="all">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "all" | "nutrients")}>
         <TabsList className="w-full">
           <TabsTrigger value="all" className="flex-1">All</TabsTrigger>
           <TabsTrigger value="nutrients" className="flex-1">Nutrients</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4 mt-4">
-          {MEAL_TYPE_ORDER.map((mealType) => {
-            const typeMeals = getMealsByType(mealType);
-            const totalCalories = typeMeals.reduce((sum, meal) => {
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              <span className="ml-2 text-slate-500 dark:text-slate-400">Loading meals...</span>
+            </div>
+          ) : (
+            MEAL_TYPE_ORDER.map((mealType) => {
+              const typeMeals = getMealsByType(mealType);
+              const totalCalories = typeMeals.reduce((sum, meal) => {
+                return (
+                  sum +
+                  meal.meal_items.reduce((itemSum, item) => {
+                    const cal = item.custom_food_nutrients?.["1008"] || 0;
+                    return itemSum + cal * item.servings;
+                  }, 0)
+                );
+              }, 0);
+
               return (
-                sum +
-                meal.items.reduce((itemSum, item) => {
-                  const cal = item.food.nutrients.find(
-                    (n) => n.nutrientId === "1008"
-                  );
-                  return itemSum + (cal?.amount || 0) * item.servings;
-                }, 0)
-              );
-            }, 0);
-
-            return (
-              <Card key={mealType}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">
-                      {MEAL_TYPE_LABELS[mealType]}
-                    </CardTitle>
-                    {totalCalories > 0 && (
-                      <Badge variant="secondary">
-                        {Math.round(totalCalories)} kcal
-                      </Badge>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {typeMeals.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-4">
-                      No {mealType} logged
-                    </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {typeMeals.map((meal) =>
-                        meal.items.map((item) => {
-                          const cal = item.food.nutrients.find(
-                            (n) => n.nutrientId === "1008"
-                          );
-                          const itemCalories =
-                            (cal?.amount || 0) * item.servings;
-
-                          return (
-                            <li
-                              key={item.id}
-                              className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0"
-                            >
-                              <div className="flex-1 min-w-0 mr-4">
-                                <p className="font-medium text-sm truncate">
-                                  {item.food.description}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  {item.servings} serving
-                                  {item.servings !== 1 ? "s" : ""}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium whitespace-nowrap">
-                                  {Math.round(itemCalories)} kcal
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-gray-500 hover:text-destructive"
-                                  onClick={() =>
-                                    removeItemFromMeal(meal.id, item.id)
-                                  }
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </li>
-                          );
-                        })
+                <Card key={mealType}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">
+                        {MEAL_TYPE_LABELS[mealType]}
+                      </CardTitle>
+                      {totalCalories > 0 && (
+                        <Badge variant="secondary">
+                          {Math.round(totalCalories)} kcal
+                        </Badge>
                       )}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {typeMeals.length === 0 ? (
+                      <div className="text-center py-6">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          No {mealType} logged yet
+                        </p>
+                      </div>
+                    ) : (
+                      <ul className="space-y-2">
+                        {typeMeals.map((meal) =>
+                          meal.meal_items.map((item) => {
+                            const cal = item.custom_food_nutrients?.["1008"] || 0;
+                            const itemCalories = cal * item.servings;
+
+                            return (
+                              <li
+                                key={item.id}
+                                className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800 last:border-0"
+                              >
+                                <div className="flex-1 min-w-0 mr-4">
+                                  <p className="font-medium text-sm truncate text-slate-900 dark:text-slate-100">
+                                    {item.custom_food_name || "Unknown food"}
+                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    {item.servings} serving
+                                    {item.servings !== 1 ? "s" : ""}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium whitespace-nowrap text-slate-900 dark:text-slate-100">
+                                    {Math.round(itemCalories)} kcal
+                                  </span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="text-slate-400 hover:text-red-500"
+                                    disabled={deleteMealItem.isPending}
+                                    onClick={() => deleteMealItem.mutate(item.id)}
+                                  >
+                                    {deleteMealItem.isPending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </li>
+                            );
+                          })
+                        )}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
         </TabsContent>
 
         <TabsContent value="nutrients" className="mt-4">
@@ -235,33 +279,33 @@ export default function FoodTrackerPage() {
             <CardContent className="space-y-4">
               {/* Vitamins */}
               <div>
-                <h3 className="font-medium mb-3">Vitamins</h3>
+                <h3 className="font-medium mb-3 text-slate-900 dark:text-slate-100">Vitamins</h3>
                 <div className="space-y-3">
                   <NutrientBar
                     name="Vitamin A"
                     value={dailyNutrients["1106"] || 0}
-                    max={900}
+                    max={goalMax("1106", 900)}
                     unit="mcg"
                     showWarning
                   />
                   <NutrientBar
                     name="Vitamin C"
                     value={dailyNutrients["1162"] || 0}
-                    max={90}
+                    max={goalMax("1162", 90)}
                     unit="mg"
                     showWarning
                   />
                   <NutrientBar
                     name="Vitamin D"
                     value={dailyNutrients["1114"] || 0}
-                    max={20}
+                    max={goalMax("1114", 20)}
                     unit="mcg"
                     showWarning
                   />
                   <NutrientBar
                     name="Vitamin B12"
                     value={dailyNutrients["1178"] || 0}
-                    max={2.4}
+                    max={goalMax("1178", 2.4)}
                     unit="mcg"
                     showWarning
                   />
@@ -270,40 +314,40 @@ export default function FoodTrackerPage() {
 
               {/* Minerals */}
               <div>
-                <h3 className="font-medium mb-3">Minerals</h3>
+                <h3 className="font-medium mb-3 text-slate-900 dark:text-slate-100">Minerals</h3>
                 <div className="space-y-3">
                   <NutrientBar
                     name="Iron"
                     value={dailyNutrients["1089"] || 0}
-                    max={18}
+                    max={goalMax("1089", 18)}
                     unit="mg"
                     showWarning
                   />
                   <NutrientBar
                     name="Calcium"
                     value={dailyNutrients["1087"] || 0}
-                    max={1000}
+                    max={goalMax("1087", 1000)}
                     unit="mg"
                     showWarning
                   />
                   <NutrientBar
                     name="Magnesium"
                     value={dailyNutrients["1090"] || 0}
-                    max={400}
+                    max={goalMax("1090", 400)}
                     unit="mg"
                     showWarning
                   />
                   <NutrientBar
                     name="Potassium"
                     value={dailyNutrients["1092"] || 0}
-                    max={4700}
+                    max={goalMax("1092", 4700)}
                     unit="mg"
                     showWarning
                   />
                   <NutrientBar
                     name="Zinc"
                     value={dailyNutrients["1095"] || 0}
-                    max={11}
+                    max={goalMax("1095", 11)}
                     unit="mg"
                     showWarning
                   />
@@ -312,25 +356,25 @@ export default function FoodTrackerPage() {
 
               {/* Other */}
               <div>
-                <h3 className="font-medium mb-3">Other</h3>
+                <h3 className="font-medium mb-3 text-slate-900 dark:text-slate-100">Other</h3>
                 <div className="space-y-3">
                   <NutrientBar
                     name="Fiber"
                     value={dailyNutrients["1079"] || 0}
-                    max={28}
+                    max={goals.fiber}
                     unit="g"
                     showWarning
                   />
                   <NutrientBar
                     name="Sodium"
                     value={dailyNutrients["1093"] || 0}
-                    max={2300}
+                    max={goalMax("1093", 2300)}
                     unit="mg"
                   />
                   <NutrientBar
                     name="Cholesterol"
                     value={dailyNutrients["1253"] || 0}
-                    max={300}
+                    max={goalMax("1253", 300)}
                     unit="mg"
                   />
                 </div>
@@ -346,10 +390,10 @@ export default function FoodTrackerPage() {
 function FoodTrackerSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-gray-100 rounded-lg animate-pulse w-48" />
-      <div className="h-12 bg-gray-100 rounded-lg animate-pulse" />
-      <div className="h-48 bg-gray-100 rounded-lg animate-pulse" />
-      <div className="h-64 bg-gray-100 rounded-lg animate-pulse" />
+      <div className="h-10 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse w-48" />
+      <div className="h-14 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
+      <div className="h-48 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
+      <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
     </div>
   );
 }
