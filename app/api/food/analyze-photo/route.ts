@@ -12,9 +12,13 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+type AiProvider = "auto" | "openai" | "anthropic";
+
+const AI_PROVIDER = (process.env.AI_PROVIDER || "auto") as AiProvider;
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -45,6 +49,63 @@ function cleanJson(text: string): string {
   if (jsonText.startsWith("```")) jsonText = jsonText.slice(3);
   if (jsonText.endsWith("```")) jsonText = jsonText.slice(0, -3);
   return jsonText.trim();
+}
+
+async function tryOpenAiExtraction(args: {
+  model: string;
+  imageBase64: string;
+  mimeType: string;
+  note?: string;
+}): Promise<AnalysisResult | null> {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const noteText = args.note?.trim();
+  const userNoteBlock = noteText
+    ? `\n\nUser note (applies to what was actually eaten):\n${noteText}`
+    : "";
+
+  const prompt = `${EXTRACTION_PROMPT}${userNoteBlock}`;
+  const imageUrl = `data:${args.mimeType};base64,${args.imageBase64}`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: args.model,
+      temperature: 0.2,
+      max_tokens: 1400,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) return null;
+
+  const json = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  const text = json.choices?.[0]?.message?.content;
+  if (!text) return null;
+
+  try {
+    const data = JSON.parse(cleanJson(text)) as unknown;
+    const parsed = AnalysisResultSchema.safeParse(data);
+    if (!parsed.success) return null;
+    return normalizeResult(parsed.data);
+  } catch {
+    return null;
+  }
 }
 
 const EXTRACTION_PROMPT = `You are an expert nutritionist and meal photo analyst.
@@ -86,6 +147,7 @@ async function tryExtraction(args: {
   imageBase64: string;
   note?: string;
 }): Promise<AnalysisResult | null> {
+  if (!anthropic) return null;
   const noteText = args.note?.trim();
   const userNoteBlock = noteText
     ? `\n\nUser note (applies to what was actually eaten):\n${noteText}`
@@ -164,11 +226,12 @@ function calculateOverallConfidence(items: Array<z.infer<typeof AnalysisItemSche
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {
           success: false,
-          error: "AI service not configured. Please add ANTHROPIC_API_KEY to environment variables.",
+          error:
+            "AI service not configured. Please add ANTHROPIC_API_KEY and/or OPENAI_API_KEY to environment variables.",
         },
         { status: 500 }
       );
@@ -187,20 +250,40 @@ export async function POST(request: NextRequest) {
       ? mimeType
       : "image/jpeg") as (typeof validMimeTypes)[number];
 
-    let extracted = await tryExtraction({
-      model: "claude-haiku-4-5-20251001",
-      mediaType,
-      imageBase64: image,
-      note,
-    });
+    const openAiModels = {
+      cheap: process.env.OPENAI_VISION_MODEL_CHEAP || "gpt-4o-mini",
+      strong: process.env.OPENAI_VISION_MODEL_STRONG || "gpt-4o",
+    };
 
-    if (!extracted) {
-      extracted = await tryExtraction({
-        model: "claude-sonnet-4-20250514",
-        mediaType,
-        imageBase64: image,
-        note,
-      });
+    const anthropicModels = {
+      cheap: process.env.ANTHROPIC_VISION_MODEL_CHEAP || "claude-haiku-4-5-20251001",
+      strong: process.env.ANTHROPIC_VISION_MODEL_STRONG || "claude-sonnet-4-20250514",
+    };
+
+    const attempts: Array<() => Promise<AnalysisResult | null>> = [];
+
+    const tryOpenAiCheap = () =>
+      tryOpenAiExtraction({ model: openAiModels.cheap, imageBase64: image, mimeType: mediaType, note });
+    const tryOpenAiStrong = () =>
+      tryOpenAiExtraction({ model: openAiModels.strong, imageBase64: image, mimeType: mediaType, note });
+    const tryAnthropicCheap = () =>
+      tryExtraction({ model: anthropicModels.cheap, mediaType, imageBase64: image, note });
+    const tryAnthropicStrong = () =>
+      tryExtraction({ model: anthropicModels.strong, mediaType, imageBase64: image, note });
+
+    if (AI_PROVIDER === "openai") {
+      attempts.push(tryOpenAiCheap, tryOpenAiStrong, tryAnthropicCheap, tryAnthropicStrong);
+    } else if (AI_PROVIDER === "anthropic") {
+      attempts.push(tryAnthropicCheap, tryAnthropicStrong, tryOpenAiCheap, tryOpenAiStrong);
+    } else {
+      // auto: start with the cheapest strong-enough option; fall back if parsing/validation fails
+      attempts.push(tryOpenAiCheap, tryAnthropicCheap, tryOpenAiStrong, tryAnthropicStrong);
+    }
+
+    let extracted: AnalysisResult | null = null;
+    for (const attempt of attempts) {
+      extracted = await attempt();
+      if (extracted) break;
     }
 
     if (!extracted) {
@@ -238,4 +321,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

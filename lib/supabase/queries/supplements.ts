@@ -403,6 +403,129 @@ export async function createUserSupplement(supplement: {
 }
 
 // ============================================
+// UPDATE / DELETE USER SUPPLEMENTS
+// ============================================
+
+export async function updateSupplement(
+  id: string,
+  data: {
+    name: string;
+    brand?: string;
+    type: string;
+    serving_size: string;
+    servings_per_container?: number;
+    other_ingredients?: string[];
+    allergens?: string[];
+    certifications?: string[];
+    attributes?: Record<string, unknown>;
+    ingredients: Array<{
+      nutrient_id?: string;
+      nutrient_name: string;
+      amount: number;
+      unit: string;
+      daily_value_percent?: number;
+      form?: string;
+      source?: string;
+      notes?: string;
+    }>;
+  }
+) {
+  // Update supplement record
+  const { error: updateError } = await supabase
+    .from('supplements')
+    .update({
+      name: data.name,
+      brand: data.brand,
+      type: data.type,
+      serving_size: data.serving_size,
+      servings_per_container: data.servings_per_container,
+      other_ingredients: data.other_ingredients,
+      allergens: data.allergens,
+      certifications: data.certifications,
+      attributes: data.attributes ?? {},
+    })
+    .eq('id', id);
+
+  if (updateError) throw updateError;
+
+  // Delete existing ingredients
+  const { error: deleteIngredientsError } = await supabase
+    .from('supplement_ingredients')
+    .delete()
+    .eq('supplement_id', id);
+
+  if (deleteIngredientsError) throw deleteIngredientsError;
+
+  // Insert new ingredients
+  if (data.ingredients.length > 0) {
+    const { error: ingredientsError } = await supabase
+      .from('supplement_ingredients')
+      .insert(
+        data.ingredients.map((ing, idx) => {
+          const { enumValue, originalForm } = mapFormToEnum(ing.form);
+          const notes = originalForm
+            ? `Form: ${originalForm}${ing.notes ? `. ${ing.notes}` : ''}`
+            : ing.notes;
+
+          return {
+            supplement_id: id,
+            nutrient_id: ing.nutrient_id,
+            nutrient_name: ing.nutrient_name,
+            amount: ing.amount,
+            unit: ing.unit,
+            daily_value_percent: ing.daily_value_percent,
+            form: enumValue,
+            source: ing.source ?? 'unknown',
+            notes,
+            sort_order: idx,
+          };
+        })
+      );
+
+    if (ingredientsError) throw ingredientsError;
+  }
+
+  // Return full supplement with ingredients
+  const { data: result, error } = await supabase
+    .from('supplements')
+    .select(`
+      *,
+      supplement_ingredients (*)
+    `)
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  return result;
+}
+
+export async function deleteSupplement(id: string) {
+  // Nullify supplement_id on any logs referencing this supplement
+  const { error: logsError } = await supabase
+    .from('supplement_logs')
+    .update({ supplement_id: null })
+    .eq('supplement_id', id);
+
+  if (logsError) throw logsError;
+
+  // Remove from pill organizer
+  const { error: organizerError } = await supabase
+    .from('pill_organizer_items')
+    .delete()
+    .eq('supplement_id', id);
+
+  if (organizerError) throw organizerError;
+
+  // Delete the supplement (ingredients cascade)
+  const { error } = await supabase
+    .from('supplements')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+// ============================================
 // SUPPLEMENT STATISTICS
 // ============================================
 

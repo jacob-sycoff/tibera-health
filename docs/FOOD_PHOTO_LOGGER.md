@@ -69,7 +69,14 @@ If storing images/audio:
   - `app/food/log/page.tsx` includes “Log from Photo”
 
 Environment variables:
-- `ANTHROPIC_API_KEY` (required for photo analysis)
+- `ANTHROPIC_API_KEY` (optional; enables Anthropic vision)
+- `OPENAI_API_KEY` (optional; enables OpenAI vision)
+- `AI_PROVIDER` (optional): `auto` (default) | `openai` | `anthropic`
+- Model overrides (optional):
+  - `OPENAI_VISION_MODEL_CHEAP` (default: `gpt-4o-mini`)
+  - `OPENAI_VISION_MODEL_STRONG` (default: `gpt-4o`)
+  - `ANTHROPIC_VISION_MODEL_CHEAP` (default: `claude-haiku-4-5-20251001`)
+  - `ANTHROPIC_VISION_MODEL_STRONG` (default: `claude-sonnet-4-20250514`)
 - `NEXT_PUBLIC_USDA_API_KEY` (optional, improves USDA lookup; demo key still works with limits)
 
 ## Next improvements (highest ROI)
@@ -77,4 +84,3 @@ Environment variables:
 2. Store analysis + optional media in Supabase for later review and model tuning.
 3. Add multi-photo meals and “before/after” plates for better consumption estimates.
 4. Add portion aids: reference object prompt (“fork/hand”), depth (LiDAR), or segmentation (SAM).
-
