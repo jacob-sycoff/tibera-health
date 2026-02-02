@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -33,7 +33,7 @@ export interface SupplementLog {
 // ============================================
 
 export async function getSupplementLogs(startDate?: string, endDate?: string): Promise<SupplementLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   let query = supabase
     .from('supplement_logs')
@@ -68,7 +68,7 @@ export async function getSupplementLogs(startDate?: string, endDate?: string): P
 }
 
 export async function getSupplementLogsByDate(date: string): Promise<SupplementLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('supplement_logs')
@@ -127,7 +127,7 @@ export async function createSupplementLog(log: {
   logged_at?: string;
   notes?: string;
 }): Promise<SupplementLog> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   console.log('Creating supplement log with:', { userId, log });
 
@@ -342,7 +342,7 @@ export async function createUserSupplement(supplement: {
     notes?: string;
   }>;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   console.log('Creating user supplement:', { name: supplement.name, userId });
 
@@ -560,7 +560,7 @@ export async function deleteSupplement(id: string) {
 // ============================================
 
 export async function getSupplementStats(days: number = 7) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
@@ -626,7 +626,7 @@ export interface PillOrganizerItem {
 }
 
 export async function getPillOrganizerItems(): Promise<PillOrganizerItem[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('pill_organizer_items')
@@ -647,7 +647,7 @@ export async function getPillOrganizerItems(): Promise<PillOrganizerItem[]> {
 export async function addPillOrganizerItem(
   supplementId: string
 ): Promise<PillOrganizerItem> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Get current max sort_order for this user
   const { data: existing } = await supabase
@@ -691,7 +691,7 @@ export async function removePillOrganizerItem(id: string): Promise<void> {
 export async function reorderPillOrganizerItems(
   orderedIds: string[]
 ): Promise<void> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const updates = orderedIds.map((id, index) =>
     supabase

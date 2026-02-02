@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -49,7 +49,7 @@ export interface MealPlan {
 // ============================================
 
 export async function getMealPlans(): Promise<MealPlan[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('meal_plans')
@@ -62,7 +62,7 @@ export async function getMealPlans(): Promise<MealPlan[]> {
 }
 
 export async function getMealPlanByWeek(weekStart: string): Promise<MealPlan | null> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('meal_plans')
@@ -91,7 +91,7 @@ export async function getMealPlanByWeek(weekStart: string): Promise<MealPlan | n
 }
 
 export async function createMealPlan(weekStart: string, name?: string): Promise<MealPlan> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('meal_plans')
@@ -172,7 +172,7 @@ export async function getPlannedMealsByDateRange(
   startDate: string,
   endDate: string
 ): Promise<PlannedMeal[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // First get the user's meal plans in this date range
   const { data: plans, error: plansError } = await supabase
@@ -302,7 +302,7 @@ export async function deletePlannedMeal(id: string): Promise<void> {
 export async function convertPlannedToLogged(
   plannedMealId: string
 ): Promise<{ mealLogId: string }> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Get the planned meal
   const { data: plannedMeal, error: fetchError } = await supabase
@@ -408,7 +408,7 @@ export interface MealTemplate {
 }
 
 export async function getMealTemplates(): Promise<MealTemplate[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('meal_templates')
@@ -438,7 +438,7 @@ export async function createMealTemplate(template: {
   meal_type?: MealType;
   items: MealTemplateItem[];
 }): Promise<MealTemplate> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Calculate totals
   const total_calories = template.items.reduce((sum, item) => sum + item.calories, 0);
@@ -561,7 +561,7 @@ export async function copyDayMeals(
   sourceDate: string,
   targetDate: string
 ): Promise<PlannedMeal[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Get all planned meals for source date
   const { data: sourceMeals, error: fetchError } = await supabase

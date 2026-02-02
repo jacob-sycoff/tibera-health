@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createClient } from "@/utils/supabase/server";
 
 const RequestSchema = z
   .object({
@@ -10,6 +11,12 @@ const RequestSchema = z
   .optional();
 
 export async function POST(req: Request): Promise<Response> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
       { success: false, error: "AI service not configured. Please add OPENAI_API_KEY to environment variables." },

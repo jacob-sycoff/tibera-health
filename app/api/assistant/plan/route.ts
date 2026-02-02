@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { createClient } from "@/utils/supabase/server";
 
 const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
@@ -642,6 +643,12 @@ async function tryOpenAiPlan(args: {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+    }
+
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { success: false, error: "AI service not configured. Please add OPENAI_API_KEY to environment variables." },

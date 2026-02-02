@@ -2,12 +2,8 @@
  * React Query Hooks
  *
  * These hooks provide data fetching and mutations using React Query
- * backed by Supabase.
- *
- * AUTH IMPLEMENTATION NOTES:
- * All user-specific hooks use getDemoUserId() internally.
- * When implementing auth, no changes needed here - just update
- * getDemoUserId() in lib/supabase/constants.ts to return actual user ID.
+ * backed by Supabase. All user-specific hooks use requireAuthUserId()
+ * internally to read the authenticated user from the Supabase session.
  */
 
 // Reference data (read-only, no auth needed)

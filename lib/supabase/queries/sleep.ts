@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -29,7 +29,7 @@ export interface SleepLog {
 // ============================================
 
 export async function getSleepLogs(startDate?: string, endDate?: string): Promise<SleepLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   let query = supabase
     .from('sleep_logs')
@@ -51,7 +51,7 @@ export async function getSleepLogs(startDate?: string, endDate?: string): Promis
 }
 
 export async function getSleepLogByDate(date: string): Promise<SleepLog | null> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('sleep_logs')
@@ -83,7 +83,7 @@ export async function createSleepLog(log: {
   factors?: string[];
   notes?: string;
 }): Promise<SleepLog> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('sleep_logs')
@@ -135,7 +135,7 @@ export async function upsertSleepLog(log: {
   factors?: string[];
   notes?: string;
 }): Promise<SleepLog> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Check if log exists for this date
   const existing = await getSleepLogByDate(log.date);
@@ -161,7 +161,7 @@ export async function deleteSleepLog(id: string) {
 // ============================================
 
 export async function getSleepStats(days: number = 7) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);

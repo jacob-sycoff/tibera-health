@@ -2,19 +2,19 @@
  * Profile Queries
  * User profile, preferences, goals, and health conditions
  *
- * AUTH NOTE: All functions use getDemoUserId() which should be
- * replaced with actual auth user ID when implementing auth.
+ * AUTH NOTE: All functions use requireAuthUserId() which retrieves
+ * the authenticated user ID from the current session.
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // PROFILE
 // ============================================
 
 export async function getProfile() {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('profiles')
@@ -31,7 +31,7 @@ export async function upsertProfile(profile: {
   avatar_url?: string;
   timezone?: string;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('profiles')
@@ -52,7 +52,7 @@ export async function upsertProfile(profile: {
 // ============================================
 
 export async function getPreferences() {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('user_preferences')
@@ -69,7 +69,7 @@ export async function upsertPreferences(preferences: {
   theme?: string;
   notifications_enabled?: boolean;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('user_preferences')
@@ -103,7 +103,7 @@ export interface UserGoals {
 }
 
 export async function getGoals(): Promise<UserGoals | null> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('user_goals')
@@ -124,7 +124,7 @@ export async function upsertGoals(goals: {
   custom_nutrients?: Record<string, number>;
   customNutrients?: Record<string, number>;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { customNutrients: camelCustom, custom_nutrients: snakeCustom, ...rest } = goals;
   const customNutrients = snakeCustom ?? camelCustom ?? undefined;
@@ -156,7 +156,7 @@ export async function insertGoalEvent(event: {
   prev_amount?: number | null;
   metadata?: Record<string, unknown>;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const payload = {
     user_id: userId,
@@ -183,7 +183,7 @@ export async function insertGoalEvent(event: {
 // ============================================
 
 export async function getUserHealthConditions() {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('user_health_conditions')
@@ -196,7 +196,7 @@ export async function getUserHealthConditions() {
 }
 
 export async function addHealthCondition(conditionCode: string, notes?: string) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('user_health_conditions')
@@ -213,7 +213,7 @@ export async function addHealthCondition(conditionCode: string, notes?: string) 
 }
 
 export async function removeHealthCondition(conditionCode: string) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { error } = await supabase
     .from('user_health_conditions')
@@ -225,7 +225,7 @@ export async function removeHealthCondition(conditionCode: string) {
 }
 
 export async function setHealthConditions(conditionCodes: string[]) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // End all current conditions
   await supabase

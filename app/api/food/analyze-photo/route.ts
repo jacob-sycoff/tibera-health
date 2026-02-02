@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { createClient } from "@/utils/supabase/server";
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -187,6 +188,12 @@ function shouldUpgradeToStrongModel(extracted: AnalysisResult): boolean {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+    }
+
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {

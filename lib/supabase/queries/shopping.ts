@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -39,7 +39,7 @@ export interface ShoppingList {
 // ============================================
 
 export async function getShoppingLists(): Promise<ShoppingList[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('shopping_lists')
@@ -69,7 +69,7 @@ export async function getShoppingListById(id: string) {
 }
 
 export async function getActiveShoppingList() {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('shopping_lists')
@@ -86,7 +86,7 @@ export async function getActiveShoppingList() {
 }
 
 export async function createShoppingList(name: string, setActive = true): Promise<ShoppingList> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // If setting as active, deactivate others first
   if (setActive) {
@@ -121,7 +121,7 @@ export async function updateShoppingList(
     is_active?: boolean;
   }
 ): Promise<ShoppingList> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // If setting as active, deactivate others first
   if (updates.is_active) {
@@ -320,7 +320,7 @@ export async function generateShoppingListFromPlan(
   endDate: string,
   listName?: string
 ): Promise<ShoppingList> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Get planned meals in the date range
   const { data: plans } = await supabase

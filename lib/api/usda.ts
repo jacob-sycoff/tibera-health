@@ -61,9 +61,10 @@ function isCacheValid(timestamp: number): boolean {
 
 export async function searchFoods(
   query: string,
-  pageSize: number = 25
+  pageSize: number = 25,
+  options?: { dataTypes?: string }
 ): Promise<FoodSearchResult[]> {
-  const cacheKey = `${query}-${pageSize}`;
+  const cacheKey = `${query}-${pageSize}-${options?.dataTypes ?? "Foundation,SR Legacy,Branded"}`;
 
   // Check cache
   const cached = searchCache.get(cacheKey);
@@ -76,7 +77,7 @@ export async function searchFoods(
   url.searchParams.set("api_key", apiKey);
   url.searchParams.set("query", query);
   url.searchParams.set("pageSize", pageSize.toString());
-  url.searchParams.set("dataType", "Foundation,SR Legacy,Branded");
+  url.searchParams.set("dataType", options?.dataTypes ?? "Foundation,SR Legacy,Branded");
 
   try {
     const response = await fetch(url.toString());
@@ -117,14 +118,32 @@ export async function smartSearchFoods(
 
   const variants = buildQueryVariants(normalized);
   // Pull deeper per variant to increase recall for short ingredient queries.
-  const perVariant = Math.max(12, Math.ceil(pageSize * 1.25));
+  const perVariant = Math.max(18, Math.ceil(pageSize * 1.6));
 
-  const buckets = await Promise.all(variants.map((q) => searchFoods(q, perVariant).catch(() => [])));
+  const looksGeneric = looksLikeGenericIngredientQuery(normalized);
+  // For generic ingredient queries, branded results often dominate the API response ordering and
+  // crowd out better reference entries. Do a reference-first pass, then fall back to branded.
+  const primaryDataTypes = looksGeneric ? "Foundation,SR Legacy" : "Foundation,SR Legacy,Branded";
+  const primaryBuckets = await Promise.all(
+    variants.map((q) => searchFoods(q, perVariant, { dataTypes: primaryDataTypes }).catch(() => []))
+  );
 
   const byId = new Map<string, FoodSearchResult>();
-  for (const list of buckets) {
+  for (const list of primaryBuckets) {
     for (const item of list) {
       if (!byId.has(item.fdcId)) byId.set(item.fdcId, item);
+    }
+  }
+
+  // If we didn't get enough candidates, expand with branded.
+  if (looksGeneric && byId.size < Math.max(8, Math.floor(pageSize * 0.6))) {
+    const secondaryBuckets = await Promise.all(
+      variants.map((q) => searchFoods(q, perVariant, { dataTypes: "Foundation,SR Legacy,Branded" }).catch(() => []))
+    );
+    for (const list of secondaryBuckets) {
+      for (const item of list) {
+        if (!byId.has(item.fdcId)) byId.set(item.fdcId, item);
+      }
     }
   }
 
@@ -249,9 +268,14 @@ function normalizeServingUnit(unit: string): string {
 }
 
 function buildQueryVariants(query: string): string[] {
-  const q = query.toLowerCase();
   const variants = new Set<string>();
   variants.add(query);
+
+  // USDA tends to describe oatmeal as "cereals, oats, ... cooked with water".
+  // Expanding here improves recall significantly vs searching for "oatmeal".
+  if (/\boatmeal\b/i.test(query)) {
+    variants.add("oats cooked");
+  }
 
   // Normalize common cooking terms to increase recall.
   const tokensToStrip = [
@@ -272,20 +296,166 @@ function buildQueryVariants(query: string): string[] {
   if (base && base !== query) variants.add(base);
 
   // If user specified a cooking method, add a generic cooked variant too.
+  const hasExplicitMethod = /\b(raw|cooked|steamed|boiled|grilled|roasted|baked|fried|sauteed|sautéed)\b/i.test(query);
   if (/\b(steamed|boiled|grilled|roasted|baked|fried|sauteed|sautéed)\b/i.test(query) && base) {
     variants.add(`${base} cooked`);
   }
   if (/\braw\b/i.test(query) && base) {
     variants.add(`${base} raw`);
   }
+  // If user didn't specify, adding a cooked variant improves recall for many USDA entries
+  // (e.g. rice/oatmeal/vegetables are frequently described as cooked).
+  if (!hasExplicitMethod && base) {
+    variants.add(`${base} cooked`);
+  }
 
   return Array.from(variants).slice(0, 3);
+}
+
+const COOKING_TOKENS = new Set([
+  "cooked",
+  "raw",
+  "steamed",
+  "boiled",
+  "grilled",
+  "roasted",
+  "baked",
+  "fried",
+  "sauteed",
+  "sautéed",
+  "poached",
+  "smoked",
+  "braised",
+  "stir",
+  "stirfry",
+  "stir-fry",
+  "stirfried",
+]);
+
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "or",
+  "the",
+  "with",
+  "without",
+  "in",
+  "of",
+  "for",
+  "to",
+  "from",
+  "fresh",
+  "frozen",
+  "canned",
+  "drained",
+  "ready",
+  "readytoeat",
+  "ready-to-eat",
+  "prepared",
+  "unspecified",
+]);
+
+// These commonly produce "close but wrong" results when the user intends a plain ingredient.
+// Penalties are intentionally large to counteract USDA scoring that ranks popular prepared foods highly.
+const PREPARED_FORM_PENALTIES: Record<string, number> = {
+  pie: 520,
+  cake: 520,
+  cookie: 520,
+  pastry: 480,
+  dessert: 520,
+  candy: 520,
+
+  bread: 460,
+  roll: 360,
+  cracker: 420,
+  snack: 360,
+  chip: 360,
+
+  noodle: 460,
+  pasta: 460,
+  pizza: 520,
+  burger: 520,
+  sandwich: 520,
+  soup: 360,
+  salad: 260,
+  cereal: 360,
+  bar: 260,
+  shake: 260,
+  smoothie: 260,
+  juice: 320,
+  ice: 260,
+  cream: 260,
+};
+
+const DERIVATIVE_FORM_PENALTIES: Record<string, number> = {
+  bran: 420,
+  flour: 420,
+  powder: 360,
+  concentrate: 360,
+  extract: 360,
+  syrup: 360,
+  peel: 320,
+  mix: 320,
+  seasoning: 320,
+  flavor: 280,
+  grass: 460,
+  instant: 320,
+  quaker: 420,
+  milk: 360,
+  soymilk: 520,
+  liqueur: 620,
+  alcoholic: 620,
+  babyfood: 620,
+  infant: 620,
+};
+
+const PREPARED_FORM_TOKENS = new Set(Object.keys(PREPARED_FORM_PENALTIES));
+
+// Strongly penalize unrequested varietals for common ingredients (e.g. broccoli).
+const VARIETY_TOKENS = new Set(["raab", "rapini", "chinese"]);
+
+const TOKEN_SYNONYMS: Record<string, string[]> = {
+  oatmeal: ["oat"],
+};
+
+function tokenizeForMatch(input: string): string[] {
+  const raw = input.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // Light singularization helps align "noodles" vs "noodle", "crackers" vs "cracker".
+  return raw.map((t) =>
+    t.length > 3 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t
+  );
+}
+
+function coreQueryTokens(query: string): string[] {
+  const base = tokenizeForMatch(query).filter(
+    (t) => t.length > 1 && !STOPWORDS.has(t) && !COOKING_TOKENS.has(t)
+  );
+  const expanded = new Set(base);
+  for (const t of base) {
+    const syns = TOKEN_SYNONYMS[t];
+    if (!syns) continue;
+    for (const s of syns) expanded.add(s);
+  }
+  return Array.from(expanded);
+}
+
+function looksLikeGenericIngredientQuery(query: string): boolean {
+  const core = coreQueryTokens(query);
+  if (core.length === 0) return true;
+  if (core.length > 3) return false;
+  if (/[0-9]/.test(query)) return false;
+  // If user explicitly asked for a prepared form, it's not a plain ingredient query.
+  if (core.some((t) => PREPARED_FORM_TOKENS.has(t))) return false;
+  return true;
 }
 
 function scoreCandidate(query: string, candidate: FoodSearchResult): number {
   const desc = candidate.description.toLowerCase();
   const dt = (candidate.dataType || "").toLowerCase();
-  const baseScore = typeof candidate.score === "number" ? candidate.score : 0;
+  const rawScore = typeof candidate.score === "number" ? candidate.score : 0;
+  // USDA `score` can be very large for branded items; compress it so data quality + semantics dominate.
+  const baseScore = Math.log1p(Math.max(0, rawScore)) * 25;
 
   // Prefer higher-quality reference data.
   const dataTypeBonus =
@@ -313,27 +483,120 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
     if (hasCooked && !hasRaw) methodScore += 10;
   }
 
+  // If the user specifies a particular cooking method (grilled vs braised, etc.), prefer exact matches.
+  const methodTokens = [
+    "steamed",
+    "boiled",
+    "grilled",
+    "roasted",
+    "baked",
+    "fried",
+    "sauteed",
+    "sautéed",
+    "poached",
+    "smoked",
+    "braised",
+  ] as const;
+  const methodEquivalents: Partial<Record<(typeof methodTokens)[number], Array<(typeof methodTokens)[number]>>> =
+    {
+      steamed: ["boiled"],
+      boiled: ["steamed"],
+      roasted: ["baked"],
+      baked: ["roasted"],
+    };
+  const queryMethods = methodTokens.filter((m) => new RegExp(`\\b${escapeRegExp(m)}\\b`, "i").test(query));
+  const descMethods = methodTokens.filter((m) => new RegExp(`\\b${escapeRegExp(m)}\\b`, "i").test(desc));
+  let specificMethodScore = 0;
+  if (queryMethods.length > 0) {
+    const descSetMethods = new Set(descMethods);
+    const querySetMethods = new Set(queryMethods);
+    const matchesMethod = (m: (typeof methodTokens)[number]) => {
+      if (descSetMethods.has(m)) return "exact";
+      const eq = methodEquivalents[m];
+      if (eq?.some((e) => descSetMethods.has(e))) return "equivalent";
+      return "none";
+    };
+    for (const qm of queryMethods) {
+      const match = matchesMethod(qm);
+      if (match === "exact") specificMethodScore += 140;
+      else if (match === "equivalent") specificMethodScore += 70;
+      else specificMethodScore -= 60;
+    }
+    for (const dm of descMethods) {
+      if (querySetMethods.has(dm)) continue;
+      // If the descriptor method is an acceptable equivalent for any requested method, don't treat it as conflicting.
+      const isEquivalent = queryMethods.some((qm) => methodEquivalents[qm]?.includes(dm));
+      if (isEquivalent) continue;
+      specificMethodScore -= 80;
+    }
+  }
+
   // Token overlap (very simple, but helps e.g. "snap beans" vs "green beans").
-  const qTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const qTokensAll = tokenizeForMatch(query);
+  const qTokens = coreQueryTokens(query);
+  const qSetAll = new Set(qTokensAll);
   const qSet = new Set(qTokens);
-  const descTokens = desc.split(/[^a-z0-9]+/).filter(Boolean);
+  const descTokens = tokenizeForMatch(desc);
+  const descSet = new Set(descTokens);
+
+  // If the user query is a generic ingredient (no numbers/brands), de-prioritize branded hits.
+  // Branded results frequently win due to inflated USDA scores, but are often not what users mean.
+  let brandedPenalty = 0;
+  const looksGeneric = looksLikeGenericIngredientQuery(query);
+  if (looksGeneric && dt.includes("branded")) brandedPenalty -= 140;
+
+  // Penalize common mismatches like "avocado" -> "avocado oil" unless explicitly asked.
+  let mismatchPenalty = 0;
+  const penalizeExtra = (token: string, penalty: number) => {
+    if (descSet.has(token) && !qSetAll.has(token)) mismatchPenalty -= penalty;
+  };
+  if (looksGeneric) {
+    penalizeExtra("oil", 420);
+    const allowCereal = qSetAll.has("oatmeal") || qSetAll.has("oat");
+    // For plain ingredient queries like "lemon" or "rice", steer away from prepared foods.
+    for (const [t, penalty] of Object.entries(PREPARED_FORM_PENALTIES)) {
+      if (qSetAll.has(t)) continue;
+      if (t === "cereal" && allowCereal) continue;
+      if (descSet.has(t)) mismatchPenalty -= penalty;
+    }
+    for (const [t, penalty] of Object.entries(DERIVATIVE_FORM_PENALTIES)) {
+      if (qSetAll.has(t)) continue;
+      if (t === "peel" && /\bwithout\s+peel\b/i.test(desc)) continue;
+      if (descSet.has(t)) mismatchPenalty -= penalty;
+    }
+  }
 
   // Penalize common "close but wrong" variants unless explicitly asked for.
   // Example: "broccoli cooked" should not match "broccoli raab, cooked".
   let variantPenalty = 0;
   const penalizeIfMissing = (token: string, penalty: number) => {
-    if (descTokens.includes(token) && !qSet.has(token)) variantPenalty -= penalty;
+    if (descSet.has(token) && !qSetAll.has(token)) variantPenalty -= penalty;
   };
-  penalizeIfMissing("raab", 450);
-  penalizeIfMissing("rapini", 450);
+  for (const t of VARIETY_TOKENS) penalizeIfMissing(t, 500);
 
   let overlap = 0;
   for (const t of qTokens) {
     if (t.length <= 2) continue;
-    if (desc.includes(t)) overlap += 8;
+    // Exact token match is much stronger than substring.
+    if (descSet.has(t)) overlap += 18;
+    else if (desc.includes(t)) overlap += 6;
   }
 
-  return baseScore + dataTypeBonus + methodScore + overlap + variantPenalty;
+  // If none of the core query tokens appear, it's almost certainly irrelevant (often driven by cooking terms).
+  const hasAnyCore = qTokens.length === 0 ? true : qTokens.some((t) => descSet.has(t) || desc.includes(t));
+  const coreMissingPenalty = hasAnyCore ? 0 : -800;
+
+  return (
+    baseScore +
+    dataTypeBonus +
+    methodScore +
+    specificMethodScore +
+    overlap +
+    brandedPenalty +
+    mismatchPenalty +
+    variantPenalty +
+    coreMissingPenalty
+  );
 }
 
 function escapeRegExp(s: string): string {

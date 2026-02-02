@@ -564,7 +564,6 @@ export function AssistantLauncher() {
             type: "response.create",
             response: {
               output_modalities: ["text"],
-              conversation: "none",
               max_output_tokens: 256,
               instructions:
                 "Transcribe the user's last spoken utterance verbatim. Return only the transcript text with no extra commentary.",
@@ -769,7 +768,6 @@ export function AssistantLauncher() {
             type: "response.create",
             response: {
               output_modalities: ["audio"],
-              conversation: "none",
               max_output_tokens: 256,
               audio: { output: { voice: realtimeVoiceRef.current } },
               instructions: `Say this to the user, verbatim:\n\n${text}`,

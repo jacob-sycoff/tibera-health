@@ -1,336 +1,138 @@
-"use client";
+import Image from 'next/image';
+import Link from 'next/link';
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Plus, Utensils, Moon, Activity, Pill, ChevronRight, Settings, UtensilsCrossed } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
-import { MetricCard } from "@/components/ui/metric-card";
-import { ProgressRing } from "@/components/charts/progress-ring";
-import { NutrientBar } from "@/components/charts/nutrient-bar";
-import { EmptyState } from "@/components/ui/empty-state";
-import { useMealsStore, calculateDailyNutrients } from "@/lib/stores/meals";
-import { useSleepStore, calculateDuration } from "@/lib/stores/sleep";
-import { useSymptomsStore } from "@/lib/stores/symptoms";
-import { useSupplementsStore } from "@/lib/stores/supplements";
-import { useEffectiveGoals, useUserHealthConditions } from "@/lib/hooks";
-
-export default function Dashboard() {
-  const [mounted, setMounted] = useState(false);
-  const today = new Date().toISOString().split("T")[0];
-
-  const { getMealsByDate } = useMealsStore();
-  const { getSleepByDate, getSleepStats } = useSleepStore();
-  const { getLogsByDate: getSymptomsByDate } = useSymptomsStore();
-  const { getLogsByDate: getSupplementsByDate } = useSupplementsStore();
-  const { goals } = useEffectiveGoals();
-  const { data: userConditions = [] } = useUserHealthConditions();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return <DashboardSkeleton />;
-  }
-
-  const todaysMeals = getMealsByDate(today);
-  const todaysSleep = getSleepByDate(today);
-  const todaysSymptoms = getSymptomsByDate(today);
-  const todaysSupplements = getSupplementsByDate(today);
-  const sleepStats = getSleepStats(7);
-
-  const dailyNutrients = calculateDailyNutrients(todaysMeals);
-  const calories = dailyNutrients["1008"] || 0;
-  const protein = dailyNutrients["1003"] || 0;
-  const carbs = dailyNutrients["1005"] || 0;
-  const fat = dailyNutrients["1004"] || 0;
-
-  const sleepDuration = todaysSleep
-    ? calculateDuration(todaysSleep.bedtime, todaysSleep.wakeTime)
-    : 0;
-  const sleepHours = sleepDuration / 60;
-
+export default function LandingPage() {
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       {/* Header */}
-      <PageHeader
-        title="Today's Summary"
-        description={new Date().toLocaleDateString("en-US", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        })}
-        action={
-          <Link href="/food/log">
-            <Button size="icon-lg" aria-label="Add meal">
-              <Plus className="w-6 h-6" />
-            </Button>
-          </Link>
-        }
-      />
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="text-center">
-          <CardContent className="pt-6">
-            <ProgressRing
-              value={calories}
-              max={goals.calories}
-              size={80}
-              strokeWidth={8}
-              label={Math.round(calories).toString()}
-              sublabel="kcal"
+      <header className="w-full px-6 py-5">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="relative h-9 w-[180px]">
+            <Image
+              src="/brand/tibera-logo-v2.png"
+              alt="Tibera Health"
+              fill
+              priority
+              className="object-contain"
             />
-            <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">Calories</p>
-          </CardContent>
-        </Card>
-
-        <Card className="text-center">
-          <CardContent className="pt-6">
-            <ProgressRing
-              value={protein}
-              max={goals.protein}
-              size={80}
-              strokeWidth={8}
-              label={`${Math.round(protein)}g`}
-              sublabel={`/${goals.protein}g`}
-              color="stroke-blue-500"
-            />
-            <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">Protein</p>
-          </CardContent>
-        </Card>
-
-        <Card className="text-center">
-          <CardContent className="pt-6">
-            <ProgressRing
-              value={sleepHours}
-              max={8}
-              size={80}
-              strokeWidth={8}
-              label={sleepHours.toFixed(1)}
-              sublabel="hours"
-              color="stroke-sleep-500"
-            />
-            <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">Sleep</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Macros Breakdown */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Macros</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <NutrientBar
-            name="Protein"
-            value={protein}
-            max={goals.protein}
-            unit="g"
-          />
-          <NutrientBar
-            name="Carbohydrates"
-            value={carbs}
-            max={goals.carbs}
-            unit="g"
-          />
-          <NutrientBar
-            name="Fat"
-            value={fat}
-            max={goals.fat}
-            unit="g"
-          />
-        </CardContent>
-      </Card>
-
-      {/* Micronutrient Highlights */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Nutrient Highlights</CardTitle>
+          </div>
+          <div className="flex items-center gap-3">
             <Link
-              href="/food?tab=nutrients"
-              className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 font-medium"
+              href="/login"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 transition px-4 py-2"
             >
-              View all
+              Sign in
+            </Link>
+            <Link
+              href="/signup"
+              className="text-sm font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-5 py-2.5 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-200 transition"
+            >
+              Get started
             </Link>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <NutrientBar
-            name="Iron"
-            value={dailyNutrients["1089"] || 0}
-            max={goals.customNutrients?.["1089"] ?? 18}
-            unit="mg"
-            showWarning
-          />
-          <NutrientBar
-            name="Vitamin D"
-            value={dailyNutrients["1114"] || 0}
-            max={goals.customNutrients?.["1114"] ?? 20}
-            unit="mcg"
-            showWarning
-            info="Vitamin D supports calcium absorption. Many people pair it with vitamin K2 (especially MK-7) to support normal calcium utilization (e.g., bones vs soft tissues). Evidence is mixed; if you use blood thinners or have medical conditions, check with your clinician."
-          />
-          <NutrientBar
-            name="Calcium"
-            value={dailyNutrients["1087"] || 0}
-            max={goals.customNutrients?.["1087"] ?? 1000}
-            unit="mg"
-            showWarning
-          />
-          <NutrientBar
-            name="Fiber"
-            value={dailyNutrients["1079"] || 0}
-            max={goals.fiber}
-            unit="g"
-            showWarning
-          />
-        </CardContent>
-      </Card>
+        </div>
+      </header>
 
-      {/* Today's Meals */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Utensils className="w-5 h-5" />
-              Today&apos;s Meals
-            </CardTitle>
-            <Link href="/food">
-              <Button variant="ghost" size="icon-sm" aria-label="View all meals">
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+      {/* Hero */}
+      <main className="max-w-5xl mx-auto px-6 pt-16 pb-24 sm:pt-24 sm:pb-32">
+        <div className="text-center max-w-2xl mx-auto">
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+            Your health,{' '}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300">
+              understood
+            </span>
+          </h1>
+          <p className="mt-6 text-lg text-slate-600 dark:text-slate-400 leading-relaxed">
+            Track nutrition, sleep, supplements, and symptoms in one place.
+            See connections between what you eat, how you sleep, and how you feel.
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              href="/signup"
+              className="w-full sm:w-auto inline-flex justify-center items-center text-base font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-3 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-200 transition"
+            >
+              Start tracking free
+            </Link>
+            <Link
+              href="/login"
+              className="w-full sm:w-auto inline-flex justify-center items-center text-base font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 px-8 py-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              Sign in
             </Link>
           </div>
-        </CardHeader>
-        <CardContent>
-          {todaysMeals.length === 0 ? (
-            <EmptyState
-              icon={UtensilsCrossed}
-              title="No meals logged"
-              description="Start tracking your nutrition by logging your first meal of the day."
-              action={{
-                label: "Log a meal",
-                href: "/food/log",
-              }}
-              className="py-6"
-            />
-          ) : (
-            <ul className="space-y-2">
-              {todaysMeals.map((meal) => {
-                const mealCalories = meal.items.reduce((sum, item) => {
-                  const cal = item.food.nutrients.find((n) => n.nutrientId === "1008");
-                  return sum + (cal?.amount || 0) * item.servings;
-                }, 0);
+        </div>
 
-                return (
-                  <li
-                    key={meal.id}
-                    className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800 last:border-0"
-                  >
-                    <div>
-                      <p className="font-medium capitalize text-slate-900 dark:text-slate-100">{meal.mealType}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {meal.items.length} item{meal.items.length !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-                    <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                      {Math.round(mealCalories)} kcal
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+        {/* Feature Grid */}
+        <div className="mt-24 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <FeatureCard
+            title="Nutrition"
+            description="Log meals, scan barcodes, and track macro & micronutrients against your goals."
+            icon={
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m15-3.379a48.474 48.474 0 0 0-6-.371c-2.032 0-4.034.126-6 .371m12 0c.39.049.777.102 1.163.16 1.07.16 1.837 1.094 1.837 2.175v5.169c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 0 1 3 20.625v-5.17c0-1.08.768-2.014 1.837-2.174A47.78 47.78 0 0 1 6 13.12" />
+              </svg>
+            }
+          />
+          <FeatureCard
+            title="Sleep"
+            description="Track bedtime, wake time, quality, and factors affecting your rest."
+            icon={
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+              </svg>
+            }
+          />
+          <FeatureCard
+            title="Supplements"
+            description="Scan labels, manage your stack, and track daily intake with a pill organizer."
+            icon={
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+            }
+          />
+          <FeatureCard
+            title="Symptoms"
+            description="Log how you feel and discover correlations with food, sleep, and supplements."
+            icon={
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+              </svg>
+            }
+          />
+        </div>
+      </main>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4">
-        <Link href="/sleep">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-            <CardContent className="pt-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-full bg-sleep-100 dark:bg-sleep-900/30 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Moon className="w-5 h-5 text-sleep-600 dark:text-sleep-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-slate-100">Sleep</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {todaysSleep ? `${sleepHours.toFixed(1)}h logged` : "Not logged"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/symptoms">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-            <CardContent className="pt-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Activity className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-slate-100">Symptoms</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {todaysSymptoms.length} logged today
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/supplements">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-            <CardContent className="pt-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Pill className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-slate-100">Supplements</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {todaysSupplements.length} taken today
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/settings">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-            <CardContent className="pt-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Settings className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-slate-100">Settings</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {userConditions.length > 0
-                    ? `${userConditions.length} selections`
-                    : "Set goals & context"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+      {/* Footer */}
+      <footer className="border-t border-slate-200 dark:border-slate-800 py-8 px-6">
+        <div className="max-w-5xl mx-auto text-center text-sm text-slate-500 dark:text-slate-400">
+          &copy; {new Date().getFullYear()} Tibera Health
+        </div>
+      </footer>
     </div>
   );
 }
 
-function DashboardSkeleton() {
+function FeatureCard({
+  title,
+  description,
+  icon,
+}: {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+}) {
   return (
-    <div className="space-y-6">
-      <div className="h-20 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
-      <div className="grid grid-cols-3 gap-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-36 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
-        ))}
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+      <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 mb-4">
+        {icon}
       </div>
-      <div className="h-52 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
-      <div className="h-52 bg-slate-100 dark:bg-slate-800 rounded-[28px] animate-pulse" />
+      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1.5">
+        {title}
+      </h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+        {description}
+      </p>
     </div>
   );
 }

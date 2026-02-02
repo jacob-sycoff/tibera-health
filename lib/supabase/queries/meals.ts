@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -41,7 +41,7 @@ export interface MealLog {
 // ============================================
 
 export async function getMealLogs(startDate?: string, endDate?: string): Promise<MealLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   let query = supabase
     .from('meal_logs')
@@ -75,7 +75,7 @@ export async function getMealLogs(startDate?: string, endDate?: string): Promise
 }
 
 export async function getMealLogsByDate(date: string): Promise<MealLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('meal_logs')
@@ -134,7 +134,7 @@ export async function createMealLog(meal: {
     servings: number;
   }>;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   // Create meal log
   const { data: mealLog, error: mealError } = await supabase

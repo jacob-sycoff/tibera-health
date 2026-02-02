@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // TYPES
@@ -32,7 +32,7 @@ export interface SymptomLog {
 // ============================================
 
 export async function getSymptomLogs(startDate?: string, endDate?: string): Promise<SymptomLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   let query = supabase
     .from('symptom_logs')
@@ -57,7 +57,7 @@ export async function getSymptomLogs(startDate?: string, endDate?: string): Prom
 }
 
 export async function getSymptomLogsByDate(date: string): Promise<SymptomLog[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('symptom_logs')
@@ -94,7 +94,7 @@ export async function createSymptomLog(log: {
   logged_at?: string;
   notes?: string;
 }): Promise<SymptomLog> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('symptom_logs')
@@ -157,7 +157,7 @@ export async function createCustomSymptom(symptom: {
   name: string;
   category: string;
 }) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('symptoms')
@@ -179,7 +179,7 @@ export async function createCustomSymptom(symptom: {
 // ============================================
 
 export async function getSymptomStats(days: number = 7) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);

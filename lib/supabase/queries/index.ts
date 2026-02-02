@@ -1,9 +1,8 @@
 /**
  * Supabase Query Functions
  *
- * AUTH IMPLEMENTATION NOTES:
- * All user-specific queries use getDemoUserId() from constants.ts
- * When implementing auth, update getDemoUserId() to return actual user ID
+ * All user-specific queries use requireAuthUserId() from constants.ts
+ * which reads the authenticated user from the Supabase session.
  */
 
 // Reference data (no auth needed)

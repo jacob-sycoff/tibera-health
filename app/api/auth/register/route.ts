@@ -1,0 +1,76 @@
+import { NextResponse } from 'next/server';
+import { createClient, createAdminClient } from '@/utils/supabase/server';
+import { sendEmail } from '@/lib/email';
+import { buildVerificationEmail } from '@/lib/emails/templates';
+import { siteUrl } from '@/lib/env';
+import crypto from 'crypto';
+
+export async function POST(request: Request) {
+  try {
+    const { email, password, displayName } = await request.json();
+
+    if (!email || !password || !displayName) {
+      return NextResponse.json(
+        { error: 'Email, password, and display name are required' },
+        { status: 400 }
+      );
+    }
+
+    if (password.length < 8) {
+      return NextResponse.json(
+        { error: 'Password must be at least 8 characters' },
+        { status: 400 }
+      );
+    }
+
+    const admin = createAdminClient();
+
+    // Create user via admin client (bypasses email confirmation)
+    const { data: authData, error: authError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: displayName },
+    });
+
+    if (authError) {
+      if (authError.message?.includes('already been registered')) {
+        return NextResponse.json(
+          { error: 'An account with this email already exists' },
+          { status: 409 }
+        );
+      }
+      console.error('[register] auth error:', authError);
+      return NextResponse.json({ error: authError.message }, { status: 400 });
+    }
+
+    const userId = authData.user.id;
+
+    // Generate verification token
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await admin.from('email_verification_tokens').insert({
+      token,
+      user_id: userId,
+      expires_at: expiresAt.toISOString(),
+    });
+
+    // Send verification email (fire-and-forget)
+    const verifyLink = `${siteUrl}/verify-email/${token}`;
+    sendEmail({
+      to: email,
+      subject: 'Verify your email - Tibera Health',
+      html: buildVerificationEmail(verifyLink),
+    }).catch((err: unknown) => console.error('[register] email error:', err));
+
+    // Sign the user in server-side
+    const supabase = await createClient();
+    await supabase.auth.signInWithPassword({ email, password });
+
+    return NextResponse.json({ success: true, userId });
+  } catch (err) {
+    console.error('[register] unexpected error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

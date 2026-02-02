@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../client';
-import { getDemoUserId } from '../constants';
+import { requireAuthUserId } from '../constants';
 
 // ============================================
 // NUTRIENTS
@@ -147,7 +147,7 @@ export async function getSupplements(): Promise<DatabaseSupplement[]> {
  * Enables a truly customizable research/tracking experience.
  */
 export async function getSupplementsForUser(): Promise<DatabaseSupplement[]> {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('supplements')
@@ -193,7 +193,7 @@ export async function searchSupplements(query: string) {
 }
 
 export async function searchSupplementsForUser(query: string) {
-  const userId = getDemoUserId();
+  const userId = await requireAuthUserId();
 
   const { data, error } = await supabase
     .from('supplements')
