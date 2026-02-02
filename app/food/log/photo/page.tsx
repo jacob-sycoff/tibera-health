@@ -13,6 +13,7 @@ import { useCreateMealLog } from "@/lib/hooks/use-meals";
 import { FoodSearch } from "@/components/food/food-search";
 import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
+import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 
 type ResolvedItem = {
   key: string;
@@ -20,6 +21,7 @@ type ResolvedItem = {
   label: string;
   usdaQuery: string;
   gramsConsumed: number | null;
+  amountUnit: "g" | "oz";
   matchedFood: Food | null;
   candidates: FoodSearchResult[];
   selectedCandidate: FoodSearchResult | null;
@@ -58,6 +60,11 @@ function servingsFromGrams(food: Food | null, grams: number | null): number | nu
     return grams / servingSize;
   }
   return null;
+}
+
+function displayAmountFromGrams(grams: number | null, unit: "g" | "oz"): number | null {
+  const v = amountFromGrams(grams, unit);
+  return v == null ? null : roundTo1Decimal(v);
 }
 
 const MEAL_TYPES: { value: MealType; label: string }[] = [
@@ -178,6 +185,7 @@ export default function LogFoodFromPhotoPage() {
               label: analysisItem.name,
               usdaQuery: query,
               gramsConsumed,
+              amountUnit: "g",
               matchedFood: food,
               candidates: ordered,
               selectedCandidate,
@@ -190,6 +198,7 @@ export default function LogFoodFromPhotoPage() {
               label: analysisItem.name,
               usdaQuery: analysisItem.usdaQuery || analysisItem.name,
               gramsConsumed: deriveConsumedGrams(analysisItem),
+              amountUnit: "g",
               matchedFood: null,
               candidates: [],
               selectedCandidate: null,
@@ -284,6 +293,7 @@ export default function LogFoodFromPhotoPage() {
         label: "",
         usdaQuery: "",
         gramsConsumed: null,
+        amountUnit: "g",
         matchedFood: null,
         candidates: [],
         selectedCandidate: null,
@@ -652,28 +662,47 @@ export default function LogFoodFromPhotoPage() {
 
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Consumed (g / mL)</label>
-                      <Input
-                        type="number"
-                        step="1"
-                        min="0"
-                        value={item.gramsConsumed ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value === "" ? null : Number(e.target.value);
-                          setResolvedItems((prev) =>
-                            prev.map((p) => {
-                              if (p.key !== item.key) return p;
-                              const nextServings = servingsFromGrams(p.matchedFood, value);
-                              return {
-                                ...p,
-                                gramsConsumed: value != null && Number.isFinite(value) ? value : null,
-                                servings: roundServings(nextServings ?? p.servings ?? 1),
-                              };
-                            })
-                          );
-                        }}
-                        placeholder="Optional"
-                      />
+                      <label className="block text-xs text-slate-500 mb-1">Amount eaten</label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          inputMode="decimal"
+                          value={displayAmountFromGrams(item.gramsConsumed, item.amountUnit) ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            const v = raw === "" ? null : Number(raw);
+                            const grams = gramsFromAmount(v != null && Number.isFinite(v) ? v : null, item.amountUnit);
+                            setResolvedItems((prev) =>
+                              prev.map((p) => {
+                                if (p.key !== item.key) return p;
+                                const nextServings = servingsFromGrams(p.matchedFood, grams);
+                                return {
+                                  ...p,
+                                  gramsConsumed: grams,
+                                  servings: roundServings(nextServings ?? p.servings ?? 1),
+                                };
+                              })
+                            );
+                          }}
+                          placeholder="Optional"
+                        />
+                        <button
+                          type="button"
+                          className={cn(
+                            "h-10 rounded-md border px-2 text-xs font-medium transition-colors",
+                            "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                            "dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/30"
+                          )}
+                          onClick={() => {
+                            setResolvedItems((prev) =>
+                              prev.map((p) => (p.key === item.key ? { ...p, amountUnit: p.amountUnit === "g" ? "oz" : "g" } : p))
+                            );
+                          }}
+                          aria-label={item.amountUnit === "g" ? "Switch to ounces" : "Switch to grams"}
+                          title={item.amountUnit === "g" ? "Switch to oz" : "Switch to g"}
+                        >
+                          {item.amountUnit}
+                        </button>
+                      </div>
                     </div>
 
                     <div>
@@ -695,7 +724,7 @@ export default function LogFoodFromPhotoPage() {
                     <div className="text-xs text-slate-500">
                       {item.analysisItem ? (
                         item.gramsConsumed != null ? (
-                          `AI portion adjusted: ${Math.round(item.gramsConsumed)}g`
+                          `AI portion adjusted: ${(displayAmountFromGrams(item.gramsConsumed, item.amountUnit) ?? Math.round(item.gramsConsumed))}${item.amountUnit}`
                         ) : (
                           "AI portion not in grams."
                         )

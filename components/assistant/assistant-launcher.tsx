@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils/cn";
 import { planAssistantActions, type AssistantPlan } from "@/lib/api/assistant";
 import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
+import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { FoodSearch } from "@/components/food/food-search";
 import {
   useCreateCustomSymptom,
@@ -105,16 +106,9 @@ function servingsFromGrams(food: Food | null, grams: number | null): number | nu
   return null;
 }
 
-const OZ_TO_G = 28.349523125;
-function gramsFromAmount(amount: number | null, unit: "g" | "oz"): number | null {
-  if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
-  return unit === "oz" ? amount * OZ_TO_G : amount;
-}
-
 function displayAmountFromGrams(grams: number | null, unit: "g" | "oz"): number | null {
-  if (grams == null || !Number.isFinite(grams) || grams <= 0) return null;
-  const v = unit === "oz" ? grams / OZ_TO_G : grams;
-  return Math.round(v * 10) / 10;
+  const v = amountFromGrams(grams, unit);
+  return v == null ? null : roundTo1Decimal(v);
 }
 
 function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
