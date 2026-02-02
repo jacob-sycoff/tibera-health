@@ -116,7 +116,8 @@ export async function smartSearchFoods(
   if (normalized.length < 2) return [];
 
   const variants = buildQueryVariants(normalized);
-  const perVariant = Math.max(5, Math.ceil(pageSize / variants.length));
+  // Pull deeper per variant to increase recall for short ingredient queries.
+  const perVariant = Math.max(12, Math.ceil(pageSize * 1.25));
 
   const buckets = await Promise.all(variants.map((q) => searchFoods(q, perVariant).catch(() => [])));
 
@@ -314,13 +315,25 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
 
   // Token overlap (very simple, but helps e.g. "snap beans" vs "green beans").
   const qTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const qSet = new Set(qTokens);
+  const descTokens = desc.split(/[^a-z0-9]+/).filter(Boolean);
+
+  // Penalize common "close but wrong" variants unless explicitly asked for.
+  // Example: "broccoli cooked" should not match "broccoli raab, cooked".
+  let variantPenalty = 0;
+  const penalizeIfMissing = (token: string, penalty: number) => {
+    if (descTokens.includes(token) && !qSet.has(token)) variantPenalty -= penalty;
+  };
+  penalizeIfMissing("raab", 450);
+  penalizeIfMissing("rapini", 450);
+
   let overlap = 0;
   for (const t of qTokens) {
     if (t.length <= 2) continue;
     if (desc.includes(t)) overlap += 8;
   }
 
-  return baseScore + dataTypeBonus + methodScore + overlap;
+  return baseScore + dataTypeBonus + methodScore + overlap + variantPenalty;
 }
 
 function escapeRegExp(s: string): string {

@@ -118,29 +118,21 @@ function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
   return result;
 }
 
-function candidateRank(candidate: FoodSearchResult): number {
-  const dt = (candidate.dataType || "").toLowerCase();
-  if (dt.includes("foundation")) return 0;
-  if (dt.includes("sr legacy") || dt.includes("sr")) return 1;
-  if (dt.includes("survey")) return 2;
-  if (dt.includes("branded")) return 3;
-  return 4;
-}
-
-function sortCandidates(candidates: FoodSearchResult[]): FoodSearchResult[] {
-  return [...candidates].sort((a, b) => {
-    const ra = candidateRank(a);
-    const rb = candidateRank(b);
-    if (ra !== rb) return ra - rb;
-    return (b.score || 0) - (a.score || 0);
-  });
-}
-
 async function resolveFirstValidFood(candidates: FoodSearchResult[]): Promise<{
   selectedCandidate: FoodSearchResult | null;
   food: Food | null;
 }> {
-  for (const candidate of candidates) {
+  if (candidates.length === 0) return { selectedCandidate: null, food: null };
+
+  // Fetch a few in parallel to reduce perceived latency.
+  const head = candidates.slice(0, 3);
+  const headFoods = await Promise.all(head.map((c) => getFoodDetails(c.fdcId).catch(() => null)));
+  for (let i = 0; i < head.length; i++) {
+    const food = headFoods[i];
+    if (food) return { selectedCandidate: head[i], food };
+  }
+
+  for (const candidate of candidates.slice(3)) {
     const food = await getFoodDetails(candidate.fdcId);
     if (food) return { selectedCandidate: candidate, food };
   }
@@ -366,6 +358,7 @@ export function AssistantLauncher() {
   const [remoteAudioStream, setRemoteAudioStream] = useState<MediaStream | null>(null);
   const [needsAudioTap, setNeedsAudioTap] = useState(false);
   const audioTapNotifiedRef = useRef(false);
+  const realtimeVoiceRef = useRef<string>("marin");
   const rtcPeerRef = useRef<RTCPeerConnection | null>(null);
   const rtcDataChannelRef = useRef<RTCDataChannel | null>(null);
   const rtcLocalStreamRef = useRef<MediaStream | null>(null);
@@ -570,7 +563,9 @@ export function AssistantLauncher() {
           sendRealtimeEvent({
             type: "response.create",
             response: {
-              modalities: ["text"],
+              output_modalities: ["text"],
+              conversation: "none",
+              max_output_tokens: 256,
               instructions:
                 "Transcribe the user's last spoken utterance verbatim. Return only the transcript text with no extra commentary.",
             },
@@ -648,6 +643,7 @@ export function AssistantLauncher() {
       const key = tokenJson?.data?.value as string;
       const model = (tokenJson?.data?.model as string) || "gpt-realtime";
       const voice = (tokenJson?.data?.voice as string) || "marin";
+      realtimeVoiceRef.current = voice;
 
       const pc = new RTCPeerConnection();
       rtcPeerRef.current = pc;
@@ -772,7 +768,10 @@ export function AssistantLauncher() {
           sendRealtimeEvent({
             type: "response.create",
             response: {
-              modalities: ["audio"],
+              output_modalities: ["audio"],
+              conversation: "none",
+              max_output_tokens: 256,
+              audio: { output: { voice: realtimeVoiceRef.current } },
               instructions: `Say this to the user, verbatim:\n\n${text}`,
             },
           });
@@ -880,8 +879,7 @@ export function AssistantLauncher() {
     if (!item) return;
 
     try {
-      const candidates = await smartSearchFoods(item.usdaQuery, 12);
-      const sorted = sortCandidates(candidates);
+      const sorted = await smartSearchFoods(item.usdaQuery, 18);
       const { selectedCandidate, food } = await resolveFirstValidFood(sorted);
 
       setActions((prev) =>
@@ -942,10 +940,21 @@ export function AssistantLauncher() {
       }
     }
 
-    for (const job of work) {
-      // eslint-disable-next-line no-await-in-loop
-      await resolveMealItem(job.actionId, job.itemKey);
-    }
+    const concurrency = 3;
+    let index = 0;
+
+    const workers = Array.from({ length: Math.min(concurrency, work.length) }).map(async () => {
+      while (true) {
+        const i = index;
+        index += 1;
+        const job = work[i];
+        if (!job) break;
+        // eslint-disable-next-line no-await-in-loop
+        await resolveMealItem(job.actionId, job.itemKey);
+      }
+    });
+
+    await Promise.all(workers);
   }, [resolveMealItem]);
 
   const stopListening = useCallback(() => {
