@@ -64,33 +64,122 @@ const LEGACY_USDA_NUMBERS_BY_ID: Record<string, string> = {
   "1114": "328", // Vitamin D
 };
 
+function NutrientContributors({
+  name,
+  unit,
+  total,
+  foods,
+  supplements,
+  onClear,
+}: {
+  name: string;
+  unit: string;
+  total: number;
+  foods: Array<{ key: string; label: string; amount: number; unit: string }>;
+  supplements: Array<{ key: string; label: string; amount: number; unit: string }>;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded-lg border border-slate-100 dark:border-slate-800 bg-white/60 dark:bg-slate-950/40 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+          Contributors
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClear}>
+          Clear
+        </Button>
+      </div>
+
+      <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+        {name}: {Math.round(total)}
+        {unit}
+      </div>
+
+      {foods.length === 0 && supplements.length === 0 ? (
+        <div className="text-sm text-slate-500 dark:text-slate-400">
+          No contributors found for this nutrient.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {foods.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">
+                Foods
+              </div>
+              <ul className="space-y-2">
+                {foods.slice(0, 12).map((c) => (
+                  <li key={c.key} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-900 dark:text-slate-100 truncate">
+                      {c.label}
+                    </span>
+                    <span className="text-sm tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                      {Math.round(c.amount)}
+                      {c.unit}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {supplements.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">
+                Supplements
+              </div>
+              <ul className="space-y-2">
+                {supplements.slice(0, 12).map((c) => (
+                  <li key={c.key} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-900 dark:text-slate-100 truncate">
+                      {c.label}
+                    </span>
+                    <span className="text-sm tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                      {Math.round(c.amount)}
+                      {c.unit || unit}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SelectableNutrient({
   selected,
   onSelect,
   children,
+  expanded,
 }: {
   selected: boolean;
   onSelect: () => void;
   children: React.ReactNode;
+  expanded?: React.ReactNode;
 }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      className={cn(
-        "-mx-2 rounded-lg px-2 py-2 cursor-pointer transition-colors",
-        "hover:bg-slate-50 dark:hover:bg-slate-900/40",
-        selected && "bg-slate-50 dark:bg-slate-900/40 ring-1 ring-black/5 dark:ring-white/10"
-      )}
-    >
-      {children}
+    <div className="-mx-2">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+        className={cn(
+          "rounded-lg px-2 py-2 cursor-pointer transition-colors",
+          "hover:bg-slate-50 dark:hover:bg-slate-900/40",
+          selected && "bg-slate-50 dark:bg-slate-900/40 ring-1 ring-black/5 dark:ring-white/10"
+        )}
+      >
+        {children}
+      </div>
+      {selected ? expanded : null}
     </div>
   );
 }
@@ -211,6 +300,10 @@ export default function FoodTrackerPage() {
 
     return { nutrientId: selectedNutrientId, ...meta, total, foods, supplements };
   }, [meals, supplementLogs, selectedNutrientId]);
+
+  const toggleNutrient = (nutrientId: string) => {
+    setSelectedNutrientId((prev) => (prev === nutrientId ? null : nutrientId));
+  };
 
   const goalMax = (usdaId: string, fallback: number) => {
     const value = goals.customNutrients?.[usdaId];
@@ -492,19 +585,55 @@ export default function FoodTrackerPage() {
                 <div className="space-y-3">
                   <SelectableNutrient
                     selected={selectedNutrientId === "1003"}
-                    onSelect={() => setSelectedNutrientId("1003")}
+                    onSelect={() => toggleNutrient("1003")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1003" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Protein" value={dailyNutrients["1003"] || 0} max={goals.protein} unit="g" />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1005"}
-                    onSelect={() => setSelectedNutrientId("1005")}
+                    onSelect={() => toggleNutrient("1005")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1005" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Carbs" value={dailyNutrients["1005"] || 0} max={goals.carbs} unit="g" />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1004"}
-                    onSelect={() => setSelectedNutrientId("1004")}
+                    onSelect={() => toggleNutrient("1004")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1004" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Fat" value={dailyNutrients["1004"] || 0} max={goals.fat} unit="g" />
                   </SelectableNutrient>
@@ -517,25 +646,73 @@ export default function FoodTrackerPage() {
                 <div className="space-y-3">
                   <SelectableNutrient
                     selected={selectedNutrientId === "1106"}
-                    onSelect={() => setSelectedNutrientId("1106")}
+                    onSelect={() => toggleNutrient("1106")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1106" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Vitamin A" value={dailyNutrients["1106"] || 0} max={goalMax("1106", 900)} unit="mcg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1162"}
-                    onSelect={() => setSelectedNutrientId("1162")}
+                    onSelect={() => toggleNutrient("1162")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1162" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Vitamin C" value={dailyNutrients["1162"] || 0} max={goalMax("1162", 90)} unit="mg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1114"}
-                    onSelect={() => setSelectedNutrientId("1114")}
+                    onSelect={() => toggleNutrient("1114")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1114" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Vitamin D" value={dailyNutrients["1114"] || 0} max={goalMax("1114", 20)} unit="mcg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1178"}
-                    onSelect={() => setSelectedNutrientId("1178")}
+                    onSelect={() => toggleNutrient("1178")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1178" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Vitamin B12" value={dailyNutrients["1178"] || 0} max={goalMax("1178", 2.4)} unit="mcg" showWarning />
                   </SelectableNutrient>
@@ -548,31 +725,91 @@ export default function FoodTrackerPage() {
                 <div className="space-y-3">
                   <SelectableNutrient
                     selected={selectedNutrientId === "1089"}
-                    onSelect={() => setSelectedNutrientId("1089")}
+                    onSelect={() => toggleNutrient("1089")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1089" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Iron" value={dailyNutrients["1089"] || 0} max={goalMax("1089", 18)} unit="mg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1087"}
-                    onSelect={() => setSelectedNutrientId("1087")}
+                    onSelect={() => toggleNutrient("1087")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1087" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Calcium" value={dailyNutrients["1087"] || 0} max={goalMax("1087", 1000)} unit="mg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1090"}
-                    onSelect={() => setSelectedNutrientId("1090")}
+                    onSelect={() => toggleNutrient("1090")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1090" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Magnesium" value={dailyNutrients["1090"] || 0} max={goalMax("1090", 400)} unit="mg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1092"}
-                    onSelect={() => setSelectedNutrientId("1092")}
+                    onSelect={() => toggleNutrient("1092")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1092" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Potassium" value={dailyNutrients["1092"] || 0} max={goalMax("1092", 4700)} unit="mg" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1095"}
-                    onSelect={() => setSelectedNutrientId("1095")}
+                    onSelect={() => toggleNutrient("1095")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1095" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Zinc" value={dailyNutrients["1095"] || 0} max={goalMax("1095", 11)} unit="mg" showWarning />
                   </SelectableNutrient>
@@ -585,80 +822,60 @@ export default function FoodTrackerPage() {
                 <div className="space-y-3">
                   <SelectableNutrient
                     selected={selectedNutrientId === "1079"}
-                    onSelect={() => setSelectedNutrientId("1079")}
+                    onSelect={() => toggleNutrient("1079")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1079" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Fiber" value={dailyNutrients["1079"] || 0} max={goals.fiber} unit="g" showWarning />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1093"}
-                    onSelect={() => setSelectedNutrientId("1093")}
+                    onSelect={() => toggleNutrient("1093")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1093" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Sodium" value={dailyNutrients["1093"] || 0} max={goalMax("1093", 2300)} unit="mg" />
                   </SelectableNutrient>
                   <SelectableNutrient
                     selected={selectedNutrientId === "1253"}
-                    onSelect={() => setSelectedNutrientId("1253")}
+                    onSelect={() => toggleNutrient("1253")}
+                    expanded={
+                      selectedBreakdown?.nutrientId === "1253" ? (
+                        <NutrientContributors
+                          name={selectedBreakdown.name}
+                          unit={selectedBreakdown.unit}
+                          total={selectedBreakdown.total}
+                          foods={selectedBreakdown.foods}
+                          supplements={selectedBreakdown.supplements}
+                          onClear={() => setSelectedNutrientId(null)}
+                        />
+                      ) : null
+                    }
                   >
                     <NutrientBar name="Cholesterol" value={dailyNutrients["1253"] || 0} max={goalMax("1253", 300)} unit="mg" />
                   </SelectableNutrient>
                 </div>
               </div>
-
-              {/* Contribution breakdown */}
-              {selectedBreakdown && (
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-medium text-slate-900 dark:text-slate-100">
-                      Contributors: {selectedBreakdown.name}
-                    </h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedNutrientId(null)}>
-                      Clear
-                    </Button>
-                  </div>
-
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                    Total: {Math.round(selectedBreakdown.total)}{selectedBreakdown.unit}
-                  </div>
-
-                  {selectedBreakdown.foods.length === 0 && selectedBreakdown.supplements.length === 0 ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">No contributors found for this nutrient.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {selectedBreakdown.foods.length > 0 && (
-                        <div>
-                          <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">Foods</div>
-                          <ul className="space-y-2">
-                            {selectedBreakdown.foods.slice(0, 12).map((c) => (
-                              <li key={c.key} className="flex items-center justify-between gap-3">
-                                <span className="text-sm text-slate-900 dark:text-slate-100 truncate">{c.label}</span>
-                                <span className="text-sm tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                                  {Math.round(c.amount)}{c.unit}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {selectedBreakdown.supplements.length > 0 && (
-                        <div>
-                          <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">Supplements</div>
-                          <ul className="space-y-2">
-                            {selectedBreakdown.supplements.slice(0, 12).map((c) => (
-                              <li key={c.key} className="flex items-center justify-between gap-3">
-                                <span className="text-sm text-slate-900 dark:text-slate-100 truncate">{c.label}</span>
-                                <span className="text-sm tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                                  {Math.round(c.amount)}{c.unit || selectedBreakdown.unit}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
