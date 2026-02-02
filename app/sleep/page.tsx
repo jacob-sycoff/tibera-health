@@ -50,6 +50,7 @@ const SLEEP_FACTORS: { value: SleepFactor; label: string }[] = [
   { value: "stress", label: "Stress" },
   { value: "screen_time", label: "Screen Time" },
   { value: "late_meal", label: "Late Meal" },
+  { value: "late_night_chores", label: "Late Night Chores" },
   { value: "medication", label: "Medication" },
 ];
 

@@ -112,7 +112,8 @@ IMPORTANT:
 - If the user provides a note like "I ate half the chicken but finished the rice", incorporate that into "consumedFraction" and/or "consumedGrams".
 - Prefer splitting composite dishes into components when obvious (e.g., chicken + rice + vegetables + sauce).
 - Provide conservative estimates and lower confidence when uncertain.
-- Use grams when possible. If grams are not possible, set servedGrams/consumedGrams to null.
+- Try hard to estimate grams using common portion sizes (even if approximate). Only set servedGrams/consumedGrams to null if you truly cannot estimate.
+- If you make a portion assumption (e.g., “medium chicken thigh”, “1 cup rice”), add it to "assumptions".
 - "usdaQuery" should be a short search query suitable for USDA FoodData Central (e.g., "grilled chicken breast", "white rice cooked", "broccoli steamed").
 
 Return ONLY valid JSON with this EXACT structure:
@@ -171,6 +172,19 @@ function calculateOverallConfidence(items: Array<z.infer<typeof AnalysisItemSche
   return Math.max(0, Math.min(1, Math.round(avg * 100) / 100));
 }
 
+function shouldUpgradeToStrongModel(extracted: AnalysisResult): boolean {
+  if (!Number.isFinite(extracted.overallConfidence)) return true;
+  if (extracted.overallConfidence < 0.7) return true;
+
+  const lowConfidenceItems = extracted.items.filter((i) => i.confidence < 0.55).length;
+  if (lowConfidenceItems > 0) return true;
+
+  const missingConsumedGrams = extracted.items.filter((i) => i.consumedGrams == null).length;
+  if (missingConsumedGrams >= Math.ceil(extracted.items.length / 2)) return true;
+
+  return false;
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -198,10 +212,28 @@ export async function POST(request: NextRequest) {
       strong: process.env.OPENAI_MEAL_PHOTO_MODEL_STRONG || "gpt-4o",
     };
 
-    let extracted: AnalysisResult | null = null;
-    extracted = await tryOpenAiExtraction({ model: openAiModels.cheap, imageBase64: image, mimeType: mediaType, note });
-    if (!extracted) {
-      extracted = await tryOpenAiExtraction({ model: openAiModels.strong, imageBase64: image, mimeType: mediaType, note });
+    let extracted = await tryOpenAiExtraction({
+      model: openAiModels.cheap,
+      imageBase64: image,
+      mimeType: mediaType,
+      note,
+    });
+
+    if (extracted && shouldUpgradeToStrongModel(extracted)) {
+      const upgraded = await tryOpenAiExtraction({
+        model: openAiModels.strong,
+        imageBase64: image,
+        mimeType: mediaType,
+        note,
+      });
+      if (upgraded) extracted = upgraded;
+    } else if (!extracted) {
+      extracted = await tryOpenAiExtraction({
+        model: openAiModels.strong,
+        imageBase64: image,
+        mimeType: mediaType,
+        note,
+      });
     }
 
     if (!extracted) {

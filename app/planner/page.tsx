@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { useToast } from "@/components/ui/toast";
 import { useMealLogsByDate } from "@/lib/hooks/use-meals";
 import {
   usePlannedMealsByDateRange,
@@ -85,8 +86,16 @@ function getWeekDatesFromStart(startDate: Date): Date[] {
   return dates;
 }
 
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function MealPlannerPage() {
   const router = useRouter();
+  const toast = useToast();
   const [mounted, setMounted] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
@@ -119,9 +128,9 @@ export default function MealPlannerPage() {
   }, []);
 
   const weekDates = getWeekDatesFromStart(currentWeekStart);
-  const weekStartStr = currentWeekStart.toISOString().split("T")[0];
-  const weekEndStr = weekDates[6].toISOString().split("T")[0];
-  const today = new Date().toISOString().split("T")[0];
+  const weekStartStr = formatLocalDate(currentWeekStart);
+  const weekEndStr = formatLocalDate(weekDates[6]);
+  const today = formatLocalDate(new Date());
 
   // Fetch planned meals for the week
   const { data: plannedMeals = [], isLoading: plannedLoading } =
@@ -129,7 +138,7 @@ export default function MealPlannerPage() {
 
   // Fetch logged meals for each day of the week
   const dayMealQueries = weekDates.map((date) => {
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDate(date);
     return useMealLogsByDate(dateStr);
   });
 
@@ -169,8 +178,9 @@ export default function MealPlannerPage() {
     notes?: string;
   }) => {
     try {
-      // Get or create the meal plan for this week
-      const plan = await getOrCreatePlan.mutateAsync(weekStartStr);
+      // Get or create the meal plan for the meal's week
+      const planWeekStart = getWeekStart(new Date(meal.date + "T00:00:00"));
+      const plan = await getOrCreatePlan.mutateAsync(planWeekStart);
 
       // Add the planned meal
       await addPlannedMeal.mutateAsync({
@@ -187,7 +197,15 @@ export default function MealPlannerPage() {
       setShowAddModal(false);
       setSelectedSlot(null);
     } catch (error) {
-      console.error("Error adding planned meal:", error);
+      const err = error as { message?: string; code?: string; details?: string; hint?: string };
+      console.error("Error adding planned meal:", {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: error,
+      });
+      toast.error(err?.message || "Failed to add planned meal");
     }
   };
 
@@ -317,7 +335,7 @@ export default function MealPlannerPage() {
       {/* Week Grid */}
       <div className="space-y-3">
         {weekDates.map((date, dayIndex) => {
-          const dateStr = date.toISOString().split("T")[0];
+          const dateStr = formatLocalDate(date);
           const dayPlannedMeals = getPlannedMealsForDate(dateStr);
           const dayLoggedMeals = dayMealQueries[dayIndex].data || [];
           const isToday = dateStr === today;
@@ -608,7 +626,7 @@ export default function MealPlannerPage() {
         onSelectTemplate={(template) => {
           // When a template is selected from the drawer,
           // open the add modal with today's date and the template's meal type
-          const today = new Date().toISOString().split("T")[0];
+          const today = formatLocalDate(new Date());
           setSelectedSlot({
             date: today,
             mealType: template.meal_type || "lunch",

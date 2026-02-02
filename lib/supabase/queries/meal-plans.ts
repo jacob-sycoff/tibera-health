@@ -357,7 +357,7 @@ export function getWeekStart(date: Date): string {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
   d.setDate(diff);
-  return d.toISOString().split('T')[0];
+  return formatLocalDate(d);
 }
 
 export function getWeekDates(weekStart: string): string[] {
@@ -366,9 +366,16 @@ export function getWeekDates(weekStart: string): string[] {
   for (let i = 0; i < 7; i++) {
     const date = new Date(start);
     date.setDate(start.getDate() + i);
-    dates.push(date.toISOString().split('T')[0]);
+    dates.push(formatLocalDate(date));
   }
   return dates;
+}
+
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // ============================================

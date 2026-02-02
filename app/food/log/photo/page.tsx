@@ -54,7 +54,7 @@ function servingsFromGrams(food: Food | null, grams: number | null): number | nu
   const servingUnit = (food.servingSizeUnit || "").toLowerCase();
   const servingSize = food.servingSize || 0;
   if (servingSize <= 0) return null;
-  if (servingUnit === "g" || servingUnit === "gram" || servingUnit === "grams") {
+  if (servingUnit === "g" || servingUnit === "gram" || servingUnit === "grams" || servingUnit === "ml") {
     return grams / servingSize;
   }
   return null;
@@ -66,6 +66,26 @@ const MEAL_TYPES: { value: MealType; label: string }[] = [
   { value: "dinner", label: "Dinner" },
   { value: "snack", label: "Snack" },
 ];
+
+function candidateRank(candidate: FoodSearchResult): number {
+  const dt = (candidate.dataType || "").toLowerCase();
+  if (dt.includes("foundation")) return 0;
+  if (dt.includes("sr legacy") || dt.includes("sr")) return 1;
+  if (dt.includes("survey")) return 2;
+  if (dt.includes("branded")) return 3;
+  return 4;
+}
+
+function pickBestCandidate(candidates: FoodSearchResult[]): FoodSearchResult | null {
+  if (candidates.length === 0) return null;
+  const sorted = [...candidates].sort((a, b) => {
+    const ra = candidateRank(a);
+    const rb = candidateRank(b);
+    if (ra !== rb) return ra - rb;
+    return (b.score || 0) - (a.score || 0);
+  });
+  return sorted[0] || null;
+}
 
 export default function LogFoodFromPhotoPage() {
   const router = useRouter();
@@ -130,7 +150,7 @@ export default function LogFoodFromPhotoPage() {
           try {
             const query = analysisItem.usdaQuery || analysisItem.name;
             const candidates = await searchFoods(query, 8);
-            const selectedCandidate = candidates[0] || null;
+            const selectedCandidate = pickBestCandidate(candidates);
             const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
 
             const gramsConsumed = deriveConsumedGrams(analysisItem);
@@ -183,7 +203,7 @@ export default function LogFoodFromPhotoPage() {
     setIsResolving(true);
     try {
       const candidates = await searchFoods(query, 10);
-      const selectedCandidate = candidates[0] || null;
+      const selectedCandidate = pickBestCandidate(candidates);
       const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
       const nextServings = servingsFromGrams(food, item.gramsConsumed);
 
@@ -609,7 +629,7 @@ export default function LogFoodFromPhotoPage() {
 
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Consumed (grams)</label>
+                      <label className="block text-xs text-slate-500 mb-1">Consumed (g / mL)</label>
                       <Input
                         type="number"
                         step="1"

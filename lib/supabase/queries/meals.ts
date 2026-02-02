@@ -242,6 +242,8 @@ export async function updateMealItem(
   id: string,
   updates: {
     servings?: number;
+    custom_food_name?: string | null;
+    custom_food_nutrients?: Record<string, number> | null;
   }
 ) {
   const { data, error } = await supabase

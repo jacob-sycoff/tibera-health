@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   X,
   Plus,
@@ -75,6 +75,10 @@ export function AddPlannedMealModal({
   const { data: templates = [] } = useMealTemplates();
   const createTemplate = useCreateMealTemplate();
   const incrementUseCount = useIncrementTemplateUseCount();
+
+  useEffect(() => {
+    setSelectedMealType(initialMealType);
+  }, [initialMealType]);
 
   const handleFoodSelect = async (searchResult: FoodSearchResult) => {
     setLoadingFood(true);
@@ -207,6 +211,7 @@ export function AddPlannedMealModal({
                 return (
                   <button
                     key={type}
+                    type="button"
                     onClick={() => setSelectedMealType(type)}
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all flex flex-col items-center gap-1",

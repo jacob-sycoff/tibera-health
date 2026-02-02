@@ -56,6 +56,8 @@ export interface FoodSearchResult {
   fdcId: string;
   description: string;
   brandOwner?: string;
+  dataType?: string;
+  foodCategory?: string;
   score: number;
 }
 
@@ -164,6 +166,7 @@ export type SleepFactor =
   | "stress"
   | "screen_time"
   | "late_meal"
+  | "late_night_chores"
   | "medication";
 
 export interface SleepStats {

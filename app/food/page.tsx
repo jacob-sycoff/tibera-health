@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, Camera, UtensilsCrossed } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, Camera, Sparkles, UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NutrientBar } from "@/components/charts/nutrient-bar";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useMealLogsByDate, useDeleteMealItem, type MealLog } from "@/lib/hooks/use-meals";
+import { useMealLogsByDate, useDeleteMealItem, useUpdateMealItem, type MealLog } from "@/lib/hooks/use-meals";
 import { useEffectiveGoals } from "@/lib/hooks";
+import { getFoodDetails, searchFoods } from "@/lib/api/usda";
+import type { FoodNutrient } from "@/types";
 import type { MealType } from "@/types";
 
 // Calculate daily nutrient totals from Supabase meal logs
@@ -34,6 +36,12 @@ function calculateDailyNutrients(meals: MealLog[]): Record<string, number> {
   return totals;
 }
 
+function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const n of nutrients) result[n.nutrientId] = n.amount;
+  return result;
+}
+
 const MEAL_TYPE_LABELS: Record<MealType, string> = {
   breakfast: "Breakfast",
   lunch: "Lunch",
@@ -49,9 +57,11 @@ export default function FoodTrackerPage() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [fixingItemId, setFixingItemId] = useState<string | null>(null);
 
   const { data: meals = [], isLoading } = useMealLogsByDate(selectedDate);
   const deleteMealItem = useDeleteMealItem();
+  const updateMealItem = useUpdateMealItem();
   const { goals } = useEffectiveGoals();
 
   useEffect(() => {
@@ -90,6 +100,27 @@ export default function FoodTrackerPage() {
 
   const getMealsByType = (type: MealType) => {
     return meals.filter((meal) => meal.meal_type === type);
+  };
+
+  const fixNutritionForItem = async (itemId: string, name: string) => {
+    if (!name.trim()) return;
+    setFixingItemId(itemId);
+    try {
+      const results = await searchFoods(name, 5);
+      const best = results[0];
+      if (!best) return;
+      const food = await getFoodDetails(best.fdcId);
+      if (!food) return;
+      updateMealItem.mutate({
+        id: itemId,
+        updates: {
+          custom_food_name: food.description,
+          custom_food_nutrients: transformNutrients(food.nutrients),
+        },
+      });
+    } finally {
+      setFixingItemId(null);
+    }
   };
 
   return (
@@ -198,7 +229,10 @@ export default function FoodTrackerPage() {
                 return (
                   sum +
                   meal.meal_items.reduce((itemSum, item) => {
-                    const cal = item.custom_food_nutrients?.["1008"] || 0;
+                    const cal =
+                      item.custom_food_nutrients?.["1008"] ??
+                      item.custom_food_nutrients?.["208"] ??
+                      0;
                     return itemSum + cal * item.servings;
                   }, 0)
                 );
@@ -229,8 +263,16 @@ export default function FoodTrackerPage() {
                       <ul className="space-y-2">
                         {typeMeals.map((meal) =>
                           meal.meal_items.map((item) => {
-                            const cal = item.custom_food_nutrients?.["1008"] || 0;
+                            const cal =
+                              item.custom_food_nutrients?.["1008"] ??
+                              item.custom_food_nutrients?.["208"] ??
+                              0;
                             const itemCalories = cal * item.servings;
+                            const canFix =
+                              itemCalories === 0 &&
+                              !!item.custom_food_name &&
+                              !deleteMealItem.isPending &&
+                              !updateMealItem.isPending;
 
                             return (
                               <li
@@ -250,6 +292,27 @@ export default function FoodTrackerPage() {
                                   <span className="text-sm font-medium whitespace-nowrap text-slate-900 dark:text-slate-100">
                                     {Math.round(itemCalories)} kcal
                                   </span>
+                                  {canFix && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      className="text-slate-400 hover:text-slate-700"
+                                      disabled={fixingItemId === item.id}
+                                      onClick={() =>
+                                        fixNutritionForItem(
+                                          item.id,
+                                          item.custom_food_name || ""
+                                        )
+                                      }
+                                      title="Recompute nutrition from USDA"
+                                    >
+                                      {fixingItemId === item.id ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-4 h-4" />
+                                      )}
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon-sm"
