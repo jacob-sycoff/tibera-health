@@ -41,7 +41,14 @@ export async function getSupplementLogs(startDate?: string, endDate?: string): P
       *,
       supplement:supplements (
         *,
-        supplement_ingredients (*)
+        supplement_ingredients (
+          *,
+          nutrient:nutrients (
+            usda_id,
+            name,
+            unit
+          )
+        )
       )
     `)
     .eq('user_id', userId)
@@ -69,7 +76,14 @@ export async function getSupplementLogsByDate(date: string): Promise<SupplementL
       *,
       supplement:supplements (
         *,
-        supplement_ingredients (*)
+        supplement_ingredients (
+          *,
+          nutrient:nutrients (
+            usda_id,
+            name,
+            unit
+          )
+        )
       )
     `)
     .eq('user_id', userId)
@@ -88,7 +102,14 @@ export async function getSupplementLogById(id: string): Promise<SupplementLog | 
       *,
       supplement:supplements (
         *,
-        supplement_ingredients (*)
+        supplement_ingredients (
+          *,
+          nutrient:nutrients (
+            usda_id,
+            name,
+            unit
+          )
+        )
       )
     `)
     .eq('id', id)
@@ -125,7 +146,14 @@ export async function createSupplementLog(log: {
       *,
       supplement:supplements (
         *,
-        supplement_ingredients (*)
+        supplement_ingredients (
+          *,
+          nutrient:nutrients (
+            usda_id,
+            name,
+            unit
+          )
+        )
       )
     `)
     .single();
