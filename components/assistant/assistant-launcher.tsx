@@ -24,6 +24,7 @@ import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 
 type ChatMessage = { role: "user" | "assistant"; text: string };
 type VoicePhase = "idle" | "dictating" | "speaking" | "awaiting_consent" | "applying";
+type RealtimeStatus = "disconnected" | "connecting" | "connected" | "error";
 
 type UiMealItem = {
   key: string;
@@ -357,7 +358,20 @@ export function AssistantLauncher() {
   const speakEnabledRef = useRef(true);
   const startListeningRef = useRef<() => void>(() => {});
   const stopListeningRef = useRef<() => void>(() => {});
-  const submitRef = useRef<() => void>(() => {});
+  const submitRef = useRef<(text?: string) => void>(() => {});
+  const inputRef = useRef(input);
+
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("disconnected");
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const rtcPeerRef = useRef<RTCPeerConnection | null>(null);
+  const rtcDataChannelRef = useRef<RTCDataChannel | null>(null);
+  const rtcLocalStreamRef = useRef<MediaStream | null>(null);
+  const rtcRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const realtimeSpeakingResolveRef = useRef<(() => void) | null>(null);
+  const realtimeSpeakingPendingRef = useRef(false);
+  const realtimeTranscribePendingRef = useRef(false);
+  const realtimeTranscribeTextRef = useRef<string>("");
+  const realtimeTranscribeTimerRef = useRef<number | null>(null);
 
   const hasAnySelected = useMemo(() => actions.some((a) => a.selected), [actions]);
   const hasAnyActions = actions.length > 0;
@@ -374,12 +388,22 @@ export function AssistantLauncher() {
     speakEnabledRef.current = speechEnabled;
   }, [speechEnabled]);
 
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
   const supportsTts = useMemo(() => {
     if (typeof window === "undefined") return false;
     return (
       typeof window.speechSynthesis !== "undefined" &&
       typeof (window as unknown as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance !== "undefined"
     );
+  }, []);
+
+  const supportsRealtime = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const w = window as unknown as { RTCPeerConnection?: unknown };
+    return Boolean(w.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
   }, []);
 
   const clearSilenceTimer = useCallback(() => {
@@ -389,7 +413,33 @@ export function AssistantLauncher() {
     }
   }, []);
 
+  const clearRealtimeTranscribeTimer = useCallback(() => {
+    if (realtimeTranscribeTimerRef.current != null) {
+      window.clearTimeout(realtimeTranscribeTimerRef.current);
+      realtimeTranscribeTimerRef.current = null;
+    }
+  }, []);
+
+  const sendRealtimeEvent = useCallback((event: Record<string, unknown>) => {
+    const dc = rtcDataChannelRef.current;
+    if (!dc || dc.readyState !== "open") return false;
+    const eventId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `evt_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+    dc.send(JSON.stringify({ event_id: eventId, ...event }));
+    return true;
+  }, []);
+
   const stopSpeaking = useCallback(() => {
+    if (mode === "conversation" && rtcDataChannelRef.current?.readyState === "open") {
+      if (realtimeSpeakingPendingRef.current) {
+        sendRealtimeEvent({ type: "response.cancel" });
+        realtimeSpeakingPendingRef.current = false;
+        realtimeSpeakingResolveRef.current?.();
+        realtimeSpeakingResolveRef.current = null;
+      }
+      return;
+    }
+
     if (typeof window === "undefined") return;
     if (!supportsTts) return;
     try {
@@ -397,16 +447,288 @@ export function AssistantLauncher() {
     } catch {
       // ignore
     }
-  }, [supportsTts]);
+  }, [mode, sendRealtimeEvent, supportsTts]);
+
+  const disconnectRealtime = useCallback(() => {
+    realtimeSpeakingPendingRef.current = false;
+    realtimeTranscribePendingRef.current = false;
+    realtimeTranscribeTextRef.current = "";
+    if (realtimeTranscribeTimerRef.current != null) {
+      try {
+        window.clearTimeout(realtimeTranscribeTimerRef.current);
+      } catch {
+        // ignore
+      }
+      realtimeTranscribeTimerRef.current = null;
+    }
+    realtimeSpeakingResolveRef.current?.();
+    realtimeSpeakingResolveRef.current = null;
+
+    try {
+      rtcDataChannelRef.current?.close();
+    } catch {
+      // ignore
+    }
+    rtcDataChannelRef.current = null;
+
+    try {
+      rtcPeerRef.current?.getSenders().forEach((sender) => sender.track?.stop());
+      rtcPeerRef.current?.close();
+    } catch {
+      // ignore
+    }
+    rtcPeerRef.current = null;
+
+    try {
+      rtcLocalStreamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {
+      // ignore
+    }
+    rtcLocalStreamRef.current = null;
+
+    setRealtimeStatus("disconnected");
+    setRealtimeError(null);
+    listeningDesiredRef.current = false;
+    setIsListening(false);
+  }, []);
+
+  const handleRealtimeTranscript = useCallback(
+    (raw: string) => {
+      const text = raw.trim();
+      if (!text) return;
+
+      clearRealtimeTranscribeTimer();
+      lastTranscriptAtRef.current = Date.now();
+
+      if (voicePhaseRef.current === "awaiting_consent") {
+        handleConsentTextRef.current(text);
+        return;
+      }
+
+      pendingVoiceConfirmRef.current = true;
+      setVoicePhase("dictating");
+      submitRef.current(text);
+    },
+    []
+  );
+
+  const handleRealtimeEvent = useCallback(
+    (event: any) => {
+      const type = typeof event?.type === "string" ? event.type : "";
+
+      if (type === "input_audio_buffer.speech_started") {
+        if (voicePhaseRef.current === "speaking") {
+          stopSpeaking();
+          setVoicePhase("dictating");
+        }
+        return;
+      }
+
+      if (type === "input_audio_buffer.speech_stopped") {
+        // If the session doesn't emit transcription events, request a text-only transcript for the last utterance.
+        clearRealtimeTranscribeTimer();
+        realtimeTranscribeTimerRef.current = window.setTimeout(() => {
+          if (voicePhaseRef.current === "speaking") return;
+          const recently = Date.now() - lastTranscriptAtRef.current < 800;
+          if (recently) return;
+          if (realtimeTranscribePendingRef.current) return;
+          realtimeTranscribePendingRef.current = true;
+          realtimeTranscribeTextRef.current = "";
+          sendRealtimeEvent({
+            type: "response.create",
+            response: {
+              modalities: ["text"],
+              instructions:
+                "Transcribe the user's last spoken utterance verbatim. Return only the transcript text with no extra commentary.",
+            },
+          });
+        }, 600);
+        return;
+      }
+
+      // Prefer built-in transcription events when available.
+      if (typeof event?.transcript === "string" && type.includes("transcription") && type.endsWith("completed")) {
+        handleRealtimeTranscript(event.transcript);
+        return;
+      }
+      if (typeof event?.text === "string" && type.includes("transcription") && type.endsWith("completed")) {
+        handleRealtimeTranscript(event.text);
+        return;
+      }
+
+      // Fallback path: when we explicitly ask for a text-only response for transcription.
+      if (realtimeTranscribePendingRef.current) {
+        if (typeof event?.delta === "string" && type.includes("output_text") && type.endsWith("delta")) {
+          realtimeTranscribeTextRef.current += event.delta;
+          return;
+        }
+        if (typeof event?.text === "string" && type.includes("output_text") && type.endsWith("done")) {
+          realtimeTranscribePendingRef.current = false;
+          const transcript = event.text;
+          realtimeTranscribeTextRef.current = "";
+          handleRealtimeTranscript(transcript);
+          return;
+        }
+      }
+
+      if (type === "response.done") {
+        if (realtimeSpeakingPendingRef.current) {
+          realtimeSpeakingPendingRef.current = false;
+          realtimeSpeakingResolveRef.current?.();
+          realtimeSpeakingResolveRef.current = null;
+          if (voicePhaseRef.current === "speaking") setVoicePhase("idle");
+        }
+      }
+    },
+    [clearRealtimeTranscribeTimer, handleRealtimeTranscript, sendRealtimeEvent, stopSpeaking]
+  );
+
+  const connectRealtime = useCallback(async () => {
+    if (!supportsRealtime) {
+      toast.error("Realtime voice not supported in this browser");
+      return;
+    }
+    if (realtimeStatus === "connecting" || realtimeStatus === "connected") return;
+
+    setRealtimeStatus("connecting");
+    setRealtimeError(null);
+
+    try {
+      const tokenResp = await fetch("/api/openai/realtime-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const tokenJson = (await tokenResp.json()) as any;
+      if (!tokenJson?.success) throw new Error(tokenJson?.error || "Failed to get realtime token");
+
+      const key = tokenJson?.data?.value as string;
+      const model = (tokenJson?.data?.model as string) || "gpt-realtime";
+
+      const pc = new RTCPeerConnection();
+      rtcPeerRef.current = pc;
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === "failed" || state === "disconnected" || state === "closed") {
+          setRealtimeStatus("error");
+          setRealtimeError(`Realtime connection ${state}`);
+          listeningDesiredRef.current = false;
+          setIsListening(false);
+        }
+      };
+
+      pc.ontrack = (e) => {
+        const audioEl = rtcRemoteAudioRef.current;
+        const stream = e.streams?.[0];
+        if (audioEl && stream) {
+          audioEl.srcObject = stream;
+          void audioEl.play().catch(() => {});
+        }
+      };
+
+      const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        } as any,
+      });
+      rtcLocalStreamRef.current = localStream;
+      for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+
+      const dc = pc.createDataChannel("oai-events");
+      rtcDataChannelRef.current = dc;
+
+      dc.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          handleRealtimeEvent(msg);
+        } catch {
+          // ignore
+        }
+      };
+
+      dc.onopen = () => {
+        setRealtimeStatus("connected");
+        if (listeningDesiredRef.current) setIsListening(true);
+
+        // Keep the realtime model silent by default; the app explicitly requests spoken responses.
+        sendRealtimeEvent({
+          type: "session.update",
+          session: {
+            type: "realtime",
+            // Try to enable built-in transcription; if unsupported, we fall back to explicit transcribe requests.
+            input_audio_transcription: { model: "whisper-1" },
+            turn_detection: { type: "server_vad" },
+            instructions:
+              "You are the Tibera Health voice interface. Do not proactively respond. Only speak when the client explicitly requests a response.",
+          },
+        });
+      };
+
+      dc.onclose = () => {
+        setRealtimeStatus("disconnected");
+        listeningDesiredRef.current = false;
+        setIsListening(false);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const sdpResponse = await fetch(
+        `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(model)}`,
+        {
+          method: "POST",
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/sdp",
+          },
+        }
+      );
+      const sdp = await sdpResponse.text();
+      if (!sdpResponse.ok) {
+        throw new Error(`OpenAI Realtime SDP error: ${sdpResponse.status}${sdp ? `: ${sdp}` : ""}`);
+      }
+
+      await pc.setRemoteDescription({ type: "answer", sdp });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start realtime voice";
+      disconnectRealtime();
+      setRealtimeStatus("error");
+      setRealtimeError(message);
+      toast.error(message);
+    }
+  }, [disconnectRealtime, handleRealtimeEvent, realtimeStatus, sendRealtimeEvent, supportsRealtime, toast]);
 
   const speak = useCallback(
     async (text: string) => {
-      if (!supportsTts) return;
       if (mode !== "conversation") return;
       if (!speakEnabledRef.current) return;
 
+      if (rtcDataChannelRef.current?.readyState === "open") {
+        stopSpeaking();
+        setVoicePhase("speaking");
+        realtimeSpeakingPendingRef.current = true;
+
+        await new Promise<void>((resolve) => {
+          realtimeSpeakingResolveRef.current = resolve;
+          sendRealtimeEvent({
+            type: "response.create",
+            response: {
+              modalities: ["audio"],
+              instructions: `Say this to the user, verbatim:\n\n${text}`,
+            },
+          });
+        });
+
+        return;
+      }
+
+      if (!supportsTts) return;
       stopSpeaking();
-      // Avoid feedback loops: don't listen while speaking.
+      // Avoid feedback loops in the fallback path.
       stopListeningRef.current();
       setVoicePhase("speaking");
 
@@ -424,7 +746,7 @@ export function AssistantLauncher() {
         }
       });
     },
-    [mode, stopSpeaking, supportsTts]
+    [mode, sendRealtimeEvent, stopSpeaking, supportsTts]
   );
 
   const describeActionsForSpeech = useCallback((plannedActions: UiAction[]) => {
@@ -571,115 +893,24 @@ export function AssistantLauncher() {
     }
   }, [resolveMealItem]);
 
-  const submit = useCallback(async () => {
-    const text = input.trim();
-    if (!text || isPlanning) return;
-
-    const hadExistingActions = actionsRef.current.some((a) => a.status !== "applied");
-
-    setIsPlanning(true);
-    setMessages((prev) => [...prev, { role: "user", text }]);
-    setInput("");
-
-    const history = [...messages, { role: "user" as const, text }].slice(-8);
-    const existingActions = uiActionsToPlanActions(actionsRef.current);
-
-    const result = await planAssistantActions({ text, history, existingActions });
-    if (!result.success) {
-      toast.error(result.error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: hadExistingActions
-            ? "I couldn't update the suggested actions right now, so I kept your existing suggestions below."
-            : "Sorry, I had trouble with that. Could you tell me a bit more? For example, what meal was it, or roughly how much of each item?",
-        },
-      ]);
-      setIsPlanning(false);
-      return;
-    }
-
-    const nextActions = planToUiActions(result.data);
-    const applied = actionsRef.current.filter((a) => a.status === "applied");
-
-    if (nextActions.length > 0) {
-      setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
-      setPlanMessage(result.data.message);
-      const merged = [...applied, ...nextActions];
-      setActions(merged);
-      actionsRef.current = merged;
-      // Background resolve USDA matches for meal items
-      void resolveAllMeals(nextActions);
-      setIsPlanning(false);
-
-      if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
-        pendingVoiceConfirmRef.current = false;
-        void (async () => {
-          const ok = await waitForMealMatches(7000);
-          if (!ok) {
-            await speak("I need you to confirm a food match on screen before I can log this.");
-            setVoicePhase("idle");
-            return;
-          }
-          const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
-          await speak(`${summary} Say yes to confirm, or no to cancel.`);
-          startConsentListening();
-        })();
-      } else {
-        setVoicePhase("idle");
-      }
-      return;
-    }
-
-    // If we had existing suggestions, treat an empty action list as "no change" and keep the list.
-    if (hadExistingActions) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: "Got it. I kept your existing suggestions below—edit any item details and apply." },
-      ]);
-      setPlanMessage("Updated details. Review and apply the suggested logs below.");
-      setActions(actionsRef.current);
-      setIsPlanning(false);
-      setVoicePhase("idle");
-      return;
-    }
-
-    setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
-    setPlanMessage(result.data.message);
-    setActions([...applied]);
-    setIsPlanning(false);
-    if (mode === "conversation" && handsFree) {
-      void (async () => {
-        await speak(result.data.message);
-        listeningPurposeRef.current = "dictation";
-        startListeningRef.current();
-      })();
-    }
-  }, [
-    actionsRef,
-    describeActionsForSpeech,
-    handsFree,
-    input,
-    isPlanning,
-    messages,
-    mode,
-    resolveAllMeals,
-    speak,
-    startConsentListening,
-    toast,
-    waitForMealMatches,
-  ]);
-
-  useEffect(() => {
-    submitRef.current = () => {
-      void submit();
-    };
-  }, [submit]);
-
   const stopListening = useCallback(() => {
     listeningDesiredRef.current = false;
     clearSilenceTimer();
+
+    if (mode === "conversation") {
+      clearRealtimeTranscribeTimer();
+      try {
+        rtcLocalStreamRef.current?.getAudioTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      } catch {
+        // ignore
+      }
+      setIsListening(false);
+      if (voicePhaseRef.current === "dictating") setVoicePhase("idle");
+      return;
+    }
+
     if (speechRef.current) {
       try {
         speechRef.current.stop();
@@ -690,9 +921,36 @@ export function AssistantLauncher() {
     setIsListening(false);
     speechRef.current = null;
     if (voicePhaseRef.current === "dictating") setVoicePhase("idle");
-  }, [clearSilenceTimer]);
+  }, [clearRealtimeTranscribeTimer, clearSilenceTimer, mode]);
 
   const startListening = useCallback(() => {
+    if (mode === "conversation") {
+      if (!supportsRealtime) {
+        toast.error("Realtime voice not supported in this browser");
+        return;
+      }
+
+      if (listeningDesiredRef.current) return;
+      listeningDesiredRef.current = true;
+      setIsListening(true);
+
+      if (listeningPurposeRef.current === "dictation") {
+        setVoicePhase("dictating");
+      } else {
+        setVoicePhase("awaiting_consent");
+      }
+
+      void connectRealtime();
+      try {
+        rtcLocalStreamRef.current?.getAudioTracks().forEach((t) => {
+          t.enabled = true;
+        });
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
     const SpeechRecognition =
       (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
       (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition;
@@ -708,7 +966,8 @@ export function AssistantLauncher() {
     restartBackoffMsRef.current = 150;
 
     if (listeningPurposeRef.current === "dictation") {
-      dictationFinalRef.current = input.trim() ? `${input.trim()} ` : "";
+      const cur = inputRef.current;
+      dictationFinalRef.current = cur.trim() ? `${cur.trim()} ` : "";
       lastTranscriptAtRef.current = Date.now();
       setVoicePhase("dictating");
     } else {
@@ -750,11 +1009,11 @@ export function AssistantLauncher() {
           if (voicePhaseRef.current !== "dictating") return;
           const elapsed = Date.now() - lastTranscriptAtRef.current;
           if (elapsed < 1000) return;
-          const text = (dictationFinalRef.current || input).trim();
+          const text = (dictationFinalRef.current || inputRef.current).trim();
           if (!text) return;
           pendingVoiceConfirmRef.current = true;
           stopListening();
-          submitRef.current();
+          submitRef.current(text);
         }, 1250);
       }
     };
@@ -808,7 +1067,7 @@ export function AssistantLauncher() {
       setIsListening(false);
       speechRef.current = null;
     }
-  }, [clearSilenceTimer, handsFree, input, stopListening, toast]);
+  }, [clearSilenceTimer, connectRealtime, handsFree, mode, stopListening, supportsRealtime, toast]);
 
   useEffect(() => {
     startListeningRef.current = startListening;
@@ -819,6 +1078,7 @@ export function AssistantLauncher() {
     if (!open) {
       stopListening();
       stopSpeaking();
+      disconnectRealtime();
       setVoicePhase("idle");
       return;
     }
@@ -832,9 +1092,10 @@ export function AssistantLauncher() {
     } else {
       // Chat mode should never auto-start listening.
       stopListening();
+      disconnectRealtime();
       setVoicePhase("idle");
     }
-  }, [handsFree, isListening, mode, open, startListening, stopListening, stopSpeaking]);
+  }, [disconnectRealtime, handsFree, isListening, mode, open, startListening, stopListening, stopSpeaking]);
 
   const applySelected = useCallback(async () => {
     const selectedActions = actions.filter((a) => a.selected);
@@ -911,6 +1172,118 @@ export function AssistantLauncher() {
     }
   }, [actions, createCustomSymptom, createMealLog, createSupplementLog, createSymptomLog, supplementsList.data, symptomsList.data, toast]);
 
+  const submit = useCallback(
+    async (overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
+      if (!text || isPlanning) return;
+
+      const hadExistingActions = actionsRef.current.some((a) => a.status !== "applied");
+
+      setIsPlanning(true);
+      setMessages((prev) => [...prev, { role: "user", text }]);
+      setInput("");
+
+      const history = [...messages, { role: "user" as const, text }].slice(-8);
+      const existingActions = uiActionsToPlanActions(actionsRef.current);
+
+      const result = await planAssistantActions({ text, history, existingActions });
+      if (!result.success) {
+        toast.error(result.error);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: hadExistingActions
+              ? "I couldn't update the suggested actions right now, so I kept your existing suggestions below."
+              : "Sorry, I had trouble with that. Could you tell me a bit more? For example, what meal was it, or roughly how much of each item?",
+          },
+        ]);
+        setIsPlanning(false);
+        return;
+      }
+
+      const nextActions = planToUiActions(result.data);
+      const applied = actionsRef.current.filter((a) => a.status === "applied");
+
+      if (nextActions.length > 0) {
+        setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
+        setPlanMessage(result.data.message);
+        const merged = [...applied, ...nextActions];
+        setActions(merged);
+        actionsRef.current = merged;
+        // Background resolve USDA matches for meal items
+        void resolveAllMeals(nextActions);
+        setIsPlanning(false);
+
+        if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
+          pendingVoiceConfirmRef.current = false;
+          void (async () => {
+            const ok = await waitForMealMatches(7000);
+            if (!ok) {
+              await speak("I need you to confirm a food match on screen before I can log this.");
+              setVoicePhase("idle");
+              return;
+            }
+            const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
+            await speak(`${summary} Say yes to confirm, or no to cancel.`);
+            startConsentListening();
+          })();
+        } else {
+          setVoicePhase("idle");
+        }
+        return;
+      }
+
+      // If we had existing suggestions, treat an empty action list as "no change" and keep the list.
+      if (hadExistingActions) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "Got it. I kept your existing suggestions below—edit any item details and apply." },
+        ]);
+        setPlanMessage("Updated details. Review and apply the suggested logs below.");
+        setActions(actionsRef.current);
+        setIsPlanning(false);
+        setVoicePhase("idle");
+        return;
+      }
+
+      setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
+      setPlanMessage(result.data.message);
+      setActions([...applied]);
+      setIsPlanning(false);
+      if (mode === "conversation" && handsFree) {
+        void (async () => {
+          await speak(result.data.message);
+          listeningPurposeRef.current = "dictation";
+          startListeningRef.current();
+        })();
+      } else setVoicePhase("idle");
+    },
+    [
+      actionsRef,
+      describeActionsForSpeech,
+      handsFree,
+      input,
+      isPlanning,
+      messages,
+      mode,
+      resolveAllMeals,
+      speak,
+      startConsentListening,
+      toast,
+      waitForMealMatches,
+    ]
+  );
+
+  // Keep submitRef stable for voice flows.
+  useEffect(() => {
+    submitRef.current = (overrideText?: string) => {
+      void submit(overrideText);
+    };
+  }, [submit]);
+
+  // Sync consent handler ref — runs every render so closures are always fresh.
+  // No dependency array to avoid React Compiler producing variable-length deps.
   useEffect(() => {
     handleConsentTextRef.current = (text: string) => {
       const t = text.trim().toLowerCase();
@@ -918,7 +1291,7 @@ export function AssistantLauncher() {
       if (voicePhaseRef.current !== "awaiting_consent") return;
 
       if (/\b(yes|yep|yeah|confirm|go ahead|do it|apply|sounds good)\b/.test(t)) {
-        stopListening();
+        stopListeningRef.current();
         void (async () => {
           setVoicePhase("applying");
           await applySelected();
@@ -933,7 +1306,7 @@ export function AssistantLauncher() {
       }
 
       if (/\b(no|nope|cancel|stop|never mind|nevermind)\b/.test(t)) {
-        stopListening();
+        stopListeningRef.current();
         void (async () => {
           await speak("Okay. I won't add anything.");
           setVoicePhase("idle");
@@ -946,7 +1319,7 @@ export function AssistantLauncher() {
       }
 
       if (/\b(repeat|again|say that again)\b/.test(t)) {
-        stopListening();
+        stopListeningRef.current();
         void (async () => {
           const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
           await speak(`${summary} Say yes to confirm, or no to cancel.`);
@@ -954,7 +1327,7 @@ export function AssistantLauncher() {
         })();
       }
     };
-  }, [applySelected, describeActionsForSpeech, handsFree, mode, open, speak, startConsentListening, stopListening]);
+  });
 
   return (
     <>
@@ -991,7 +1364,11 @@ export function AssistantLauncher() {
                     ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
                     : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
                 )}
-                onClick={() => setMode("chat")}
+                onClick={() => {
+                  stopListening();
+                  disconnectRealtime();
+                  setMode("chat");
+                }}
               >
                 <MessageSquare className="w-4 h-4" />
                 Chat
@@ -1004,7 +1381,10 @@ export function AssistantLauncher() {
                     ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
                     : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
                 )}
-                onClick={() => setMode("conversation")}
+                onClick={() => {
+                  stopListening();
+                  setMode("conversation");
+                }}
               >
                 <Volume2 className="w-4 h-4" />
                 Conversation
@@ -1025,6 +1405,8 @@ export function AssistantLauncher() {
         </ModalHeader>
 
         <ModalContent className="space-y-4">
+          <audio ref={rtcRemoteAudioRef} autoPlay playsInline className="hidden" />
+
           <div className="rounded-[var(--radius-lg)] border border-black/10 dark:border-white/10 bg-white/60 dark:bg-slate-950/30 p-4">
             <div className="space-y-3 max-h-[34vh] overflow-auto pr-1">
               {messages.length === 0 ? (
@@ -1051,12 +1433,16 @@ export function AssistantLauncher() {
             <div className="mt-3 space-y-2">
               {mode === "conversation" && (
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {voicePhase === "awaiting_consent"
+                  {realtimeStatus === "connecting"
+                    ? "Connecting voice…"
+                    : realtimeStatus === "error"
+                    ? `Voice error: ${realtimeError || "failed to start"}`
+                    : voicePhase === "awaiting_consent"
                     ? "Listening for “yes” to confirm or “no” to cancel…"
                     : voicePhase === "speaking"
-                    ? "Speaking…"
+                    ? "Speaking… (you can interrupt)"
                     : isListening
-                    ? "Listening… (pause to submit)"
+                    ? "Listening…"
                     : "Ready."}
                 </div>
               )}

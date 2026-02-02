@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck",
     "db:migrate": "node scripts/apply-supabase-migrations.cjs",
     "db:mark-migrations": "node mark-migrations-applied.cjs"
   },

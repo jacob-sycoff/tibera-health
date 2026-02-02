@@ -77,7 +77,7 @@ export async function upsertPreferences(preferences: {
       user_id: userId,
       ...preferences,
       updated_at: new Date().toISOString(),
-    })
+    }, { onConflict: 'user_id' })
     .select()
     .single();
 
@@ -136,7 +136,7 @@ export async function upsertGoals(goals: {
       ...rest,
       ...(customNutrients !== undefined ? { custom_nutrients: customNutrients } : {}),
       updated_at: new Date().toISOString(),
-    })
+    }, { onConflict: 'user_id' })
     .select()
     .single();
 
