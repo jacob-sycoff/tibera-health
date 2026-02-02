@@ -116,8 +116,6 @@ export default function FoodTrackerPage() {
     setMounted(true);
   }, []);
 
-  if (!mounted) return <FoodTrackerSkeleton />;
-
   const dailyNutrients = calculateDailyNutrients(meals);
 
   const nutrientMeta = (nutrientId: string) => {
@@ -262,6 +260,8 @@ export default function FoodTrackerPage() {
       setFixingItemId(null);
     }
   };
+
+  if (!mounted) return <FoodTrackerSkeleton />;
 
   return (
     <div className="space-y-6">
