@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Check, Loader2 } from "lucide-react";
+import { Plus, Check, Loader2, Pencil, Trash2, PenLine } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ interface Supplement {
   allergens: string[] | null;
   certifications: string[] | null;
   is_verified: boolean;
+  user_edited?: boolean;
   supplement_ingredients: SupplementIngredient[];
 }
 
@@ -35,6 +36,8 @@ interface SupplementCardProps {
   onLog: () => void;
   onViewDetails: () => void;
   isLogging: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function SupplementCard({
@@ -42,6 +45,8 @@ export function SupplementCard({
   onLog,
   onViewDetails,
   isLogging,
+  onEdit,
+  onDelete,
 }: SupplementCardProps) {
   const topNutrients = (supplement.supplement_ingredients || []).slice(0, 4);
 
@@ -59,13 +64,47 @@ export function SupplementCard({
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge variant="secondary" className="capitalize">
-              {supplement.type}
-            </Badge>
+            <div className="flex items-center gap-1">
+              <Badge variant="secondary" className="capitalize">
+                {supplement.type}
+              </Badge>
+              {onEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-slate-400 hover:text-red-500"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
             {supplement.is_verified && (
               <Badge variant="outline" className="text-xs">
                 <Check className="w-3 h-3 mr-1" />
                 Verified
+              </Badge>
+            )}
+            {supplement.user_edited && (
+              <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700">
+                <PenLine className="w-3 h-3 mr-1" />
+                Edited
               </Badge>
             )}
           </div>

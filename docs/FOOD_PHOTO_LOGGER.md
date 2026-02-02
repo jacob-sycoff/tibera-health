@@ -60,8 +60,8 @@ If storing images/audio:
 - **Top-1 match rate**: USDA mapping correctness (sampled/labelled).
 - **Portion error**: optional (if you run a user study with weighed foods).
 
-## MVP implementation included in this repo
-- Server analysis endpoint: `app/api/food/analyze-photo/route.ts` (Claude Vision → structured JSON)
+## Implementation included in this repo
+- Server analysis endpoint: `app/api/food/analyze-photo/route.ts` (OpenAI Vision → structured JSON)
 - Client helper: `lib/api/meal-photo-logger.ts`
 - UI flow: `app/food/log/photo/page.tsx`
 - Entry points:
@@ -69,18 +69,13 @@ If storing images/audio:
   - `app/food/log/page.tsx` includes “Log from Photo”
 
 Environment variables:
-- `ANTHROPIC_API_KEY` (optional; enables Anthropic vision)
-- `OPENAI_API_KEY` (optional; enables OpenAI vision)
-- `AI_PROVIDER` (optional): `auto` (default) | `openai` | `anthropic`
+- `OPENAI_API_KEY` (required)
 - Model overrides (optional):
-  - `OPENAI_VISION_MODEL_CHEAP` (default: `gpt-4o-mini`)
-  - `OPENAI_VISION_MODEL_STRONG` (default: `gpt-4o`)
-  - `ANTHROPIC_VISION_MODEL_CHEAP` (default: `claude-haiku-4-5-20251001`)
-  - `ANTHROPIC_VISION_MODEL_STRONG` (default: `claude-sonnet-4-20250514`)
+  - `OPENAI_MEAL_PHOTO_MODEL_CHEAP` (default: `gpt-4o-mini`)
+  - `OPENAI_MEAL_PHOTO_MODEL_STRONG` (default: `gpt-4o`)
 - `NEXT_PUBLIC_USDA_API_KEY` (optional, improves USDA lookup; demo key still works with limits)
 
 ## Next improvements (highest ROI)
-1. Add “pick best match” UI for USDA results when confidence is low.
-2. Store analysis + optional media in Supabase for later review and model tuning.
-3. Add multi-photo meals and “before/after” plates for better consumption estimates.
-4. Add portion aids: reference object prompt (“fork/hand”), depth (LiDAR), or segmentation (SAM).
+1. Store analysis + optional media in Supabase for later review and model tuning.
+2. Add multi-photo meals and “before/after” plates for better consumption estimates.
+3. Add portion aids: reference object prompt (“fork/hand”), depth (LiDAR), or segmentation (SAM).

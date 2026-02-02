@@ -1,7 +1,7 @@
 /**
  * Meal Photo Analysis API Route
  *
- * Uses Claude Vision to identify foods in a meal photo and estimate portions.
+ * Uses OpenAI Vision to identify foods in a meal photo and estimate portions.
  *
  * POST /api/food/analyze-photo
  * Body: { image: string (base64), mimeType: string, note?: string }
@@ -9,16 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-
-type AiProvider = "auto" | "openai" | "anthropic";
-
-const AI_PROVIDER = (process.env.AI_PROVIDER || "auto") as AiProvider;
-
-const anthropic = process.env.ANTHROPIC_API_KEY
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : null;
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -49,6 +40,11 @@ function cleanJson(text: string): string {
   if (jsonText.startsWith("```")) jsonText = jsonText.slice(3);
   if (jsonText.endsWith("```")) jsonText = jsonText.slice(0, -3);
   return jsonText.trim();
+}
+
+function normalizeMimeType(mimeType: string | undefined): "image/jpeg" | "image/png" | "image/webp" | "image/gif" {
+  const validMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
+  return (validMimeTypes.includes(mimeType as (typeof validMimeTypes)[number]) ? mimeType : "image/jpeg") as (typeof validMimeTypes)[number];
 }
 
 async function tryOpenAiExtraction(args: {
@@ -141,55 +137,6 @@ Rules:
 - If consumedFraction is provided, it should reflect the fraction eaten (0-1)
 - Do not include any extra keys.`;
 
-async function tryExtraction(args: {
-  model: string;
-  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-  imageBase64: string;
-  note?: string;
-}): Promise<AnalysisResult | null> {
-  if (!anthropic) return null;
-  const noteText = args.note?.trim();
-  const userNoteBlock = noteText
-    ? `\n\nUser note (applies to what was actually eaten):\n${noteText}`
-    : "";
-
-  const response = await anthropic.messages.create({
-    model: args.model,
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: args.mediaType,
-              data: args.imageBase64,
-            },
-          },
-          {
-            type: "text",
-            text: `${EXTRACTION_PROMPT}${userNoteBlock}`,
-          },
-        ],
-      },
-    ],
-  });
-
-  const textContent = response.content.find((c) => c.type === "text");
-  if (!textContent || textContent.type !== "text") return null;
-
-  try {
-    const data = JSON.parse(cleanJson(textContent.text)) as unknown;
-    const parsed = AnalysisResultSchema.safeParse(data);
-    if (!parsed.success) return null;
-    return normalizeResult(parsed.data);
-  } catch {
-    return null;
-  }
-}
-
 function normalizeResult(result: AnalysisResult): AnalysisResult {
   const items = result.items
     .map((item) => {
@@ -226,12 +173,12 @@ function calculateOverallConfidence(items: Array<z.infer<typeof AnalysisItemSche
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "AI service not configured. Please add ANTHROPIC_API_KEY and/or OPENAI_API_KEY to environment variables.",
+            "AI service not configured. Please add OPENAI_API_KEY to environment variables.",
         },
         { status: 500 }
       );
@@ -245,45 +192,16 @@ export async function POST(request: NextRequest) {
 
     const { image, mimeType, note } = parsedBody.data;
 
-    const validMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
-    const mediaType = (validMimeTypes.includes(mimeType as (typeof validMimeTypes)[number])
-      ? mimeType
-      : "image/jpeg") as (typeof validMimeTypes)[number];
-
+    const mediaType = normalizeMimeType(mimeType);
     const openAiModels = {
-      cheap: process.env.OPENAI_VISION_MODEL_CHEAP || "gpt-4o-mini",
-      strong: process.env.OPENAI_VISION_MODEL_STRONG || "gpt-4o",
+      cheap: process.env.OPENAI_MEAL_PHOTO_MODEL_CHEAP || "gpt-4o-mini",
+      strong: process.env.OPENAI_MEAL_PHOTO_MODEL_STRONG || "gpt-4o",
     };
-
-    const anthropicModels = {
-      cheap: process.env.ANTHROPIC_VISION_MODEL_CHEAP || "claude-haiku-4-5-20251001",
-      strong: process.env.ANTHROPIC_VISION_MODEL_STRONG || "claude-sonnet-4-20250514",
-    };
-
-    const attempts: Array<() => Promise<AnalysisResult | null>> = [];
-
-    const tryOpenAiCheap = () =>
-      tryOpenAiExtraction({ model: openAiModels.cheap, imageBase64: image, mimeType: mediaType, note });
-    const tryOpenAiStrong = () =>
-      tryOpenAiExtraction({ model: openAiModels.strong, imageBase64: image, mimeType: mediaType, note });
-    const tryAnthropicCheap = () =>
-      tryExtraction({ model: anthropicModels.cheap, mediaType, imageBase64: image, note });
-    const tryAnthropicStrong = () =>
-      tryExtraction({ model: anthropicModels.strong, mediaType, imageBase64: image, note });
-
-    if (AI_PROVIDER === "openai") {
-      attempts.push(tryOpenAiCheap, tryOpenAiStrong, tryAnthropicCheap, tryAnthropicStrong);
-    } else if (AI_PROVIDER === "anthropic") {
-      attempts.push(tryAnthropicCheap, tryAnthropicStrong, tryOpenAiCheap, tryOpenAiStrong);
-    } else {
-      // auto: start with the cheapest strong-enough option; fall back if parsing/validation fails
-      attempts.push(tryOpenAiCheap, tryAnthropicCheap, tryOpenAiStrong, tryAnthropicStrong);
-    }
 
     let extracted: AnalysisResult | null = null;
-    for (const attempt of attempts) {
-      extracted = await attempt();
-      if (extracted) break;
+    extracted = await tryOpenAiExtraction({ model: openAiModels.cheap, imageBase64: image, mimeType: mediaType, note });
+    if (!extracted) {
+      extracted = await tryOpenAiExtraction({ model: openAiModels.strong, imageBase64: image, mimeType: mediaType, note });
     }
 
     if (!extracted) {
@@ -299,21 +217,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: extracted });
   } catch (error) {
     console.error("Meal photo analysis error:", error);
-
-    if (error instanceof Anthropic.APIError) {
-      if (error.status === 401) {
-        return NextResponse.json(
-          { success: false, error: "Invalid API key. Please check ANTHROPIC_API_KEY." },
-          { status: 500 }
-        );
-      }
-      if (error.status === 429) {
-        return NextResponse.json(
-          { success: false, error: "Rate limit exceeded. Please try again in a moment." },
-          { status: 429 }
-        );
-      }
-    }
 
     return NextResponse.json(
       { success: false, error: "Failed to analyze image. Please try again." },

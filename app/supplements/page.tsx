@@ -31,6 +31,8 @@ import {
   useDeleteSupplementLog,
   useSupplementsList,
   useCreateUserSupplement,
+  useUpdateSupplement,
+  useDeleteSupplement,
 } from "@/lib/hooks";
 import type {
   SupplementIngredient,
@@ -187,6 +189,8 @@ export default function SupplementsPage() {
   const createLog = useCreateSupplementLog();
   const deleteLog = useDeleteSupplementLog();
   const createSupplement = useCreateUserSupplement();
+  const updateSupplement = useUpdateSupplement();
+  const deleteSupplementMutation = useDeleteSupplement();
   const toast = useToast();
 
   const navigateDate = (direction: number) => {
@@ -287,6 +291,38 @@ export default function SupplementsPage() {
 
   const handleDeleteLog = (id: string) => {
     deleteLog.mutate(id);
+  };
+
+  const handleSaveSupplement = (
+    supplementId: string,
+    data: Parameters<typeof updateSupplement.mutate>[0]["data"]
+  ) => {
+    updateSupplement.mutate(
+      { id: supplementId, data },
+      {
+        onSuccess: () => {
+          toast.success("Supplement updated");
+          setSelectedDetailedSupplement(null);
+        },
+        onError: (error) => {
+          console.error("Failed to update supplement:", error);
+          toast.error("Failed to update supplement");
+        },
+      }
+    );
+  };
+
+  const handleDeleteSupplement = (supplementId: string) => {
+    deleteSupplementMutation.mutate(supplementId, {
+      onSuccess: () => {
+        toast.success("Supplement deleted");
+        setSelectedDetailedSupplement(null);
+      },
+      onError: (error) => {
+        console.error("Failed to delete supplement:", error);
+        toast.error("Failed to delete supplement");
+      },
+    });
   };
 
   const takenSupplements = new Set(
@@ -792,6 +828,8 @@ export default function SupplementsPage() {
                   onLog={() => handleLogDetailedSupplement(supplement)}
                   onViewDetails={() => setSelectedDetailedSupplement(supplement)}
                   isLogging={createLog.isPending}
+                  onEdit={() => setSelectedDetailedSupplement(supplement)}
+                  onDelete={() => handleDeleteSupplement(supplement.id)}
                 />
               ))}
             </div>
@@ -1143,6 +1181,10 @@ export default function SupplementsPage() {
             setSelectedDetailedSupplement(null);
           }}
           isLogging={createLog.isPending}
+          onSave={(data) => handleSaveSupplement(selectedDetailedSupplement.id, data)}
+          onDelete={() => handleDeleteSupplement(selectedDetailedSupplement.id)}
+          isSaving={updateSupplement.isPending}
+          isDeleting={deleteSupplementMutation.isPending}
         />
       )}
 

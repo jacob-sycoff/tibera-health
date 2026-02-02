@@ -10,13 +10,19 @@ import { useToast } from "@/components/ui/toast";
 import { analyzeMealPhoto, type MealPhotoAnalysis, type MealPhotoItem } from "@/lib/api/meal-photo-logger";
 import { getFoodDetails, searchFoods } from "@/lib/api/usda";
 import { useCreateMealLog } from "@/lib/hooks/use-meals";
-import type { Food, FoodNutrient, MealType } from "@/types";
+import { FoodSearch } from "@/components/food/food-search";
+import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
 
 type ResolvedItem = {
   key: string;
-  analysisItem: MealPhotoItem;
+  analysisItem: MealPhotoItem | null;
+  label: string;
+  usdaQuery: string;
+  gramsConsumed: number | null;
   matchedFood: Food | null;
+  candidates: FoodSearchResult[];
+  selectedCandidate: FoodSearchResult | null;
   servings: number;
   resolveError?: string;
 };
@@ -39,6 +45,17 @@ function deriveConsumedGrams(item: MealPhotoItem): number | null {
     if (typeof item.consumedFraction === "number" && Number.isFinite(item.consumedFraction)) {
       return item.servedGrams * item.consumedFraction;
     }
+  }
+  return null;
+}
+
+function servingsFromGrams(food: Food | null, grams: number | null): number | null {
+  if (!food || grams == null || !Number.isFinite(grams) || grams <= 0) return null;
+  const servingUnit = (food.servingSizeUnit || "").toLowerCase();
+  const servingSize = food.servingSize || 0;
+  if (servingSize <= 0) return null;
+  if (servingUnit === "g" || servingUnit === "gram" || servingUnit === "grams") {
+    return grams / servingSize;
   }
   return null;
 }
@@ -112,30 +129,35 @@ export default function LogFoodFromPhotoPage() {
         analysisItems.map(async (analysisItem, idx) => {
           try {
             const query = analysisItem.usdaQuery || analysisItem.name;
-            const results = await searchFoods(query, 5);
-            const best = results[0];
-            const food = best ? await getFoodDetails(best.fdcId) : null;
+            const candidates = await searchFoods(query, 8);
+            const selectedCandidate = candidates[0] || null;
+            const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
 
-            const consumedGrams = deriveConsumedGrams(analysisItem);
-            const servingUnit = (food?.servingSizeUnit || "").toLowerCase();
-            const servingSize = food?.servingSize || 0;
-
-            let servings = 1;
-            if (consumedGrams != null && servingSize > 0 && (servingUnit === "g" || servingUnit === "gram" || servingUnit === "grams")) {
-              servings = consumedGrams / servingSize;
-            }
+            const gramsConsumed = deriveConsumedGrams(analysisItem);
+            const servingsFromAuto = servingsFromGrams(food, gramsConsumed);
+            const servings = roundServings(servingsFromAuto ?? 1);
 
             return {
               key: `${idx}-${analysisItem.name}`,
               analysisItem,
+              label: analysisItem.name,
+              usdaQuery: query,
+              gramsConsumed,
               matchedFood: food,
+              candidates,
+              selectedCandidate,
               servings: roundServings(servings),
             } satisfies ResolvedItem;
           } catch (error) {
             return {
               key: `${idx}-${analysisItem.name}`,
               analysisItem,
+              label: analysisItem.name,
+              usdaQuery: analysisItem.usdaQuery || analysisItem.name,
+              gramsConsumed: deriveConsumedGrams(analysisItem),
               matchedFood: null,
+              candidates: [],
+              selectedCandidate: null,
               servings: 1,
               resolveError: error instanceof Error ? error.message : "Failed to match food",
             } satisfies ResolvedItem;
@@ -146,6 +168,85 @@ export default function LogFoodFromPhotoPage() {
     } finally {
       setIsResolving(false);
     }
+  };
+
+  const refreshCandidatesForItem = async (key: string) => {
+    const item = resolvedItems.find((i) => i.key === key);
+    if (!item) return;
+
+    const query = item.usdaQuery.trim();
+    if (query.length < 2) {
+      toast.error("Enter a longer search query");
+      return;
+    }
+
+    setIsResolving(true);
+    try {
+      const candidates = await searchFoods(query, 10);
+      const selectedCandidate = candidates[0] || null;
+      const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
+      const nextServings = servingsFromGrams(food, item.gramsConsumed);
+
+      setResolvedItems((prev) =>
+        prev.map((p) =>
+          p.key === key
+            ? {
+                ...p,
+                candidates,
+                selectedCandidate,
+                matchedFood: food,
+                servings: roundServings(nextServings ?? p.servings ?? 1),
+                resolveError: food ? undefined : p.resolveError,
+              }
+            : p
+        )
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Search failed");
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  const selectCandidateForItem = async (key: string, candidate: FoodSearchResult) => {
+    setIsResolving(true);
+    try {
+      const food = await getFoodDetails(candidate.fdcId);
+      setResolvedItems((prev) =>
+        prev.map((p) => {
+          if (p.key !== key) return p;
+          const nextServings = servingsFromGrams(food, p.gramsConsumed);
+          return {
+            ...p,
+            selectedCandidate: candidate,
+            matchedFood: food,
+            label: p.label.trim() ? p.label : candidate.description,
+            servings: roundServings(nextServings ?? p.servings ?? 1),
+            resolveError: food ? undefined : p.resolveError,
+          };
+        })
+      );
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  const addManualItem = () => {
+    const idx = resolvedItems.length + 1;
+    setResolvedItems((prev) => [
+      ...prev,
+      {
+        key: `manual-${Date.now()}-${idx}`,
+        analysisItem: null,
+        label: "",
+        usdaQuery: "",
+        gramsConsumed: null,
+        matchedFood: null,
+        candidates: [],
+        selectedCandidate: null,
+        servings: 1,
+      },
+    ]);
   };
 
   const handleAnalyze = async () => {
@@ -191,13 +292,13 @@ export default function LogFoodFromPhotoPage() {
         items: resolvedItems.map((item) => {
           if (item.matchedFood) {
             return {
-              custom_food_name: item.matchedFood.description,
+              custom_food_name: item.label.trim() || item.matchedFood.description,
               custom_food_nutrients: transformNutrients(item.matchedFood.nutrients),
               servings: item.servings,
             };
           }
           return {
-            custom_food_name: item.analysisItem.name,
+            custom_food_name: item.label.trim() || item.analysisItem?.name || "Unknown food",
             custom_food_nutrients: undefined,
             servings: item.servings,
           };
@@ -414,18 +515,89 @@ export default function LogFoodFromPhotoPage() {
               </div>
             )}
 
+            <div className="flex items-center justify-between gap-2">
+              <Button variant="outline" onClick={addManualItem}>
+                Add Item
+              </Button>
+              <div className="text-xs text-slate-500">
+                Tip: use “Search” if the match is wrong.
+              </div>
+            </div>
+
             <ul className="space-y-3">
               {resolvedItems.map((item) => (
                 <li key={item.key} className="rounded-lg border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="font-medium text-slate-900 dark:text-slate-100 truncate">
-                        {item.matchedFood?.description || item.analysisItem.name}
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Label</label>
+                            <Input
+                              value={item.label}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setResolvedItems((prev) =>
+                                  prev.map((p) => (p.key === item.key ? { ...p, label: value } : p))
+                                );
+                              }}
+                              placeholder="e.g., grilled chicken"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">USDA Search</label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={item.usdaQuery}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setResolvedItems((prev) =>
+                                    prev.map((p) => (p.key === item.key ? { ...p, usdaQuery: value } : p))
+                                  );
+                                }}
+                                placeholder="e.g., white rice cooked"
+                              />
+                              <Button variant="outline" onClick={() => refreshCandidatesForItem(item.key)}>
+                                Search
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Match Override</label>
+                            <FoodSearch
+                              onSelect={(food) => selectCandidateForItem(item.key, food)}
+                              className="max-w-full"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Top Matches</label>
+                            <select
+                              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary-600 dark:border-slate-800 dark:bg-slate-950"
+                              value={item.selectedCandidate?.fdcId || ""}
+                              onChange={(e) => {
+                                const next = item.candidates.find((c) => c.fdcId === e.target.value);
+                                if (next) selectCandidateForItem(item.key, next);
+                              }}
+                              disabled={item.candidates.length === 0}
+                            >
+                              <option value="" disabled>
+                                {item.candidates.length ? "Select a match…" : "No matches yet"}
+                              </option>
+                              {item.candidates.map((c) => (
+                                <option key={c.fdcId} value={c.fdcId}>
+                                  {c.description}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
                       </div>
                       <div className="text-xs text-slate-500">
-                        {item.analysisItem.name}
-                        {" · "}
-                        {Math.round(item.analysisItem.confidence * 100)}%
+                        {item.matchedFood?.description ? `Matched: ${item.matchedFood.description}` : "No USDA match selected"}
+                        {item.analysisItem ? ` · AI: ${Math.round(item.analysisItem.confidence * 100)}%` : null}
                         {item.resolveError ? ` · ${item.resolveError}` : null}
                       </div>
                     </div>
@@ -435,8 +607,33 @@ export default function LogFoodFromPhotoPage() {
                     </Button>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-3">
-                    <div className="w-32">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Consumed (grams)</label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={item.gramsConsumed ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value === "" ? null : Number(e.target.value);
+                          setResolvedItems((prev) =>
+                            prev.map((p) => {
+                              if (p.key !== item.key) return p;
+                              const nextServings = servingsFromGrams(p.matchedFood, value);
+                              return {
+                                ...p,
+                                gramsConsumed: value != null && Number.isFinite(value) ? value : null,
+                                servings: roundServings(nextServings ?? p.servings ?? 1),
+                              };
+                            })
+                          );
+                        }}
+                        placeholder="Optional"
+                      />
+                    </div>
+
+                    <div>
                       <label className="block text-xs text-slate-500 mb-1">Servings</label>
                       <Input
                         type="number"
@@ -451,12 +648,17 @@ export default function LogFoodFromPhotoPage() {
                         }}
                       />
                     </div>
+
                     <div className="text-xs text-slate-500">
-                      {(() => {
-                        const grams = deriveConsumedGrams(item.analysisItem);
-                        if (grams == null) return "Portion estimated as servings.";
-                        return `Estimated consumed: ${Math.round(grams)}g`;
-                      })()}
+                      {item.analysisItem ? (
+                        item.gramsConsumed != null ? (
+                          `AI portion adjusted: ${Math.round(item.gramsConsumed)}g`
+                        ) : (
+                          "AI portion not in grams."
+                        )
+                      ) : (
+                        "Manual item."
+                      )}
                     </div>
                   </div>
                 </li>

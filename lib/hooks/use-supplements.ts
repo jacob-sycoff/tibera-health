@@ -12,6 +12,8 @@ import {
   updateSupplementLog,
   deleteSupplementLog,
   createUserSupplement,
+  updateSupplement,
+  deleteSupplement,
   getSupplementStats,
   getPillOrganizerItems,
   addPillOrganizerItem,
@@ -113,6 +115,31 @@ export function useCreateUserSupplement() {
     mutationFn: createUserSupplement,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplements', 'list'] });
+    },
+  });
+}
+
+export function useUpdateSupplement() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateSupplement>[1] }) =>
+      updateSupplement(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supplements', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['pill-organizer'] });
+    },
+  });
+}
+
+export function useDeleteSupplement() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteSupplement,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supplements', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['pill-organizer'] });
     },
   });
 }

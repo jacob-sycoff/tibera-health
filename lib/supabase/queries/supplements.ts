@@ -430,7 +430,7 @@ export async function updateSupplement(
     }>;
   }
 ) {
-  // Update supplement record
+  // Update supplement record and mark as user-edited
   const { error: updateError } = await supabase
     .from('supplements')
     .update({
@@ -443,6 +443,8 @@ export async function updateSupplement(
       allergens: data.allergens,
       certifications: data.certifications,
       attributes: data.attributes ?? {},
+      user_edited: true,
+      user_edited_at: new Date().toISOString(),
     })
     .eq('id', id);
 
