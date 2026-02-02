@@ -69,6 +69,22 @@ DO $$
 DECLARE
   demo_id UUID := '00000000-0000-0000-0000-000000000001'::uuid;
 BEGIN
+  -- Break any non-cascading references to the demo profile before deleting it.
+  -- (Some reference tables store optional creator/user ownership without ON DELETE CASCADE.)
+
+  -- Foods/symptoms: these are optional ownership references; keep rows but detach from demo user.
+  UPDATE public.foods SET created_by = NULL WHERE created_by = demo_id;
+  UPDATE public.symptoms SET created_by = NULL WHERE created_by = demo_id;
+
+  -- Supplements: demo-owned supplements may be referenced by logs (no ON DELETE SET NULL).
+  -- Null out any references, then remove the demo-owned supplements (ingredients + organizer items cascade).
+  UPDATE public.supplement_logs
+    SET supplement_id = NULL
+    WHERE supplement_id IN (
+      SELECT id FROM public.supplements WHERE created_by_user = demo_id
+    );
+  DELETE FROM public.supplements WHERE created_by_user = demo_id;
+
   -- Delete from tables that reference profiles.id via FK (cascade handles most,
   -- but be explicit for tables that may not cascade)
   DELETE FROM public.pill_organizer_items WHERE user_id = demo_id;
