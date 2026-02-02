@@ -372,6 +372,7 @@ export function AssistantLauncher() {
   const realtimeTranscribePendingRef = useRef(false);
   const realtimeTranscribeTextRef = useRef<string>("");
   const realtimeTranscribeTimerRef = useRef<number | null>(null);
+  const realtimeTranscriptionDeltaByItemRef = useRef<Record<string, string>>({});
 
   const hasAnySelected = useMemo(() => actions.some((a) => a.selected), [actions]);
   const hasAnyActions = actions.length > 0;
@@ -547,22 +548,32 @@ export function AssistantLauncher() {
       }
 
       // Prefer built-in transcription events when available.
-      if (typeof event?.transcript === "string" && type.includes("transcription") && type.endsWith("completed")) {
-        handleRealtimeTranscript(event.transcript);
+      if (type === "conversation.item.input_audio_transcription.delta" && typeof event?.delta === "string") {
+        clearRealtimeTranscribeTimer();
+        lastTranscriptAtRef.current = Date.now();
+
+        const itemId = typeof event?.item_id === "string" ? event.item_id : "unknown";
+        const next = (realtimeTranscriptionDeltaByItemRef.current[itemId] || "") + event.delta;
+        realtimeTranscriptionDeltaByItemRef.current[itemId] = next;
+
+        if (voicePhaseRef.current === "dictating") setInput(next.trim());
         return;
       }
-      if (typeof event?.text === "string" && type.includes("transcription") && type.endsWith("completed")) {
-        handleRealtimeTranscript(event.text);
+
+      if (type === "conversation.item.input_audio_transcription.completed" && typeof event?.transcript === "string") {
+        const itemId = typeof event?.item_id === "string" ? event.item_id : "unknown";
+        delete realtimeTranscriptionDeltaByItemRef.current[itemId];
+        handleRealtimeTranscript(event.transcript);
         return;
       }
 
       // Fallback path: when we explicitly ask for a text-only response for transcription.
       if (realtimeTranscribePendingRef.current) {
-        if (typeof event?.delta === "string" && type.includes("output_text") && type.endsWith("delta")) {
+        if (type === "response.text.delta" && typeof event?.delta === "string") {
           realtimeTranscribeTextRef.current += event.delta;
           return;
         }
-        if (typeof event?.text === "string" && type.includes("output_text") && type.endsWith("done")) {
+        if (type === "response.text.done" && typeof event?.text === "string") {
           realtimeTranscribePendingRef.current = false;
           const transcript = event.text;
           realtimeTranscribeTextRef.current = "";
@@ -635,7 +646,10 @@ export function AssistantLauncher() {
         } as any,
       });
       rtcLocalStreamRef.current = localStream;
-      for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+      for (const track of localStream.getTracks()) {
+        track.enabled = listeningDesiredRef.current;
+        pc.addTrack(track, localStream);
+      }
 
       const dc = pc.createDataChannel("oai-events");
       rtcDataChannelRef.current = dc;
@@ -658,9 +672,19 @@ export function AssistantLauncher() {
           type: "session.update",
           session: {
             type: "realtime",
-            // Try to enable built-in transcription; if unsupported, we fall back to explicit transcribe requests.
-            input_audio_transcription: { model: "whisper-1" },
-            turn_detection: { type: "server_vad" },
+            audio: {
+              input: {
+                transcription: { model: "gpt-4o-mini-transcribe", language: "en" },
+                noise_reduction: { type: "near_field" },
+                turn_detection: {
+                  type: "server_vad",
+                  // We only want turn events + transcription; the app explicitly requests spoken responses.
+                  create_response: false,
+                  interrupt_response: true,
+                  silence_duration_ms: 650,
+                },
+              },
+            },
             instructions:
               "You are the Tibera Health voice interface. Do not proactively respond. Only speak when the client explicitly requests a response.",
           },
