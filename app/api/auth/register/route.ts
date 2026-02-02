@@ -23,7 +23,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[register] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Create user via admin client (bypasses email confirmation)
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
@@ -65,8 +72,17 @@ export async function POST(request: Request) {
     }).catch((err: unknown) => console.error('[register] email error:', err));
 
     // Sign the user in server-side
-    const supabase = await createClient();
-    await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const supabase = await createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        console.error('[register] sign-in error:', signInError);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[register] supabase client init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, userId });
   } catch (err) {

@@ -15,7 +15,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[reset-password:POST] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Look up user by email
     const { data: userData } = await admin.auth.admin.listUsers();
@@ -79,7 +86,14 @@ export async function PUT(request: Request) {
       );
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[reset-password:PUT] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Look up token
     const { data: tokenRow, error: tokenError } = await admin

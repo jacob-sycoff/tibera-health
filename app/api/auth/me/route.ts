@@ -3,14 +3,28 @@ import { createClient, createAdminClient } from '@/utils/supabase/server';
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[me] supabase init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ user: null, role: 'anon', emailVerified: false });
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[me] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Check admin status
     const { data: adminRow } = await admin

@@ -7,14 +7,28 @@ import crypto from 'crypto';
 
 export async function POST() {
   try {
-    const supabase = await createClient();
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[resend-verification] supabase init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[resend-verification] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Check if already verified
     const { data: profile } = await admin

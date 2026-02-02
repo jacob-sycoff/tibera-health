@@ -12,7 +12,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = await createClient();
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[login] supabase init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,

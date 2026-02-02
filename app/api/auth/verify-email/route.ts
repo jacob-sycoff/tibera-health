@@ -9,7 +9,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 });
     }
 
-    const admin = createAdminClient();
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Server misconfigured';
+      console.error('[verify-email] supabase admin init error:', err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // Look up token
     const { data: tokenRow, error: tokenError } = await admin
