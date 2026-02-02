@@ -256,6 +256,91 @@ function applyCookingHeuristics(inputText: string, planned: AssistantPlan): Assi
   return { ...planned, actions };
 }
 
+const MEDICATION_DEFAULTS: Array<{
+  keys: string[];
+  canonical: string;
+  perUnit: number;
+  unit: string;
+  formLabel: string;
+}> = [
+  { keys: ["ibuprofen", "advil", "motrin"], canonical: "ibuprofen", perUnit: 200, unit: "mg", formLabel: "tablet" },
+  { keys: ["acetaminophen", "tylenol", "paracetamol"], canonical: "acetaminophen", perUnit: 500, unit: "mg", formLabel: "tablet" },
+  { keys: ["naproxen", "aleve"], canonical: "naproxen", perUnit: 220, unit: "mg", formLabel: "tablet" },
+];
+
+function extractCountNear(text: string, keys: string[]): number | null {
+  const t = text.toLowerCase();
+  for (const key of keys) {
+    const r1 = new RegExp(`(\\d+)\\s*(?:x\\s*)?(?:${key})\\b`, "i");
+    const m1 = t.match(r1);
+    if (m1) return Number(m1[1]);
+
+    const r2 = new RegExp(`\\b${key}\\b\\s*(\\d+)`, "i");
+    const m2 = t.match(r2);
+    if (m2) return Number(m2[1]);
+
+    const r3 = new RegExp(`(\\d+)\\s*(?:tabs?|tablets?|pills?|caps?|capsules?)\\b`, "i");
+    const m3 = t.match(r3);
+    if (m3 && t.includes(key)) return Number(m3[1]);
+  }
+  return null;
+}
+
+function applyMedicationHeuristics(inputText: string, planned: AssistantPlan): AssistantPlan {
+  const text = inputText.toLowerCase();
+  const actions = planned.actions.map((a) => ({ ...a }));
+
+  for (const med of MEDICATION_DEFAULTS) {
+    const mentioned = med.keys.some((k) => text.includes(k));
+    if (!mentioned) continue;
+
+    const existingIndex = actions.findIndex(
+      (a) => a.type === "log_supplement" && med.keys.some((k) => normalizeKey(a.data.supplement).includes(normalizeKey(k)))
+    );
+
+    const count = extractCountNear(text, med.keys);
+    const unitsTaken = count && Number.isFinite(count) && count > 0 ? count : 1;
+    const dose = Math.round(unitsTaken * med.perUnit);
+    const note = `Assumed ${unitsTaken} ${med.formLabel}${unitsTaken === 1 ? "" : "s"} × ${med.perUnit}${med.unit}.`;
+
+    if (existingIndex === -1) {
+      actions.push({
+        type: "log_supplement",
+        title: `Log ${med.canonical}`,
+        confidence: unitsTaken === 1 ? 0.75 : 0.85,
+        data: {
+          supplement: med.canonical,
+          dosage: dose,
+          unit: med.unit,
+          date: null,
+          time: null,
+          notes: note,
+        },
+      });
+      continue;
+    }
+
+    const existing = actions[existingIndex] as Extract<AssistantPlan["actions"][number], { type: "log_supplement" }>;
+
+    // If the model left it blank or used the generic defaults, overwrite with a sensible default.
+    const looksDefault =
+      existing.data.dosage == null ||
+      existing.data.unit == null ||
+      (existing.data.dosage === 1 && normalizeKey(existing.data.unit) === "serving");
+
+    if (looksDefault) {
+      existing.data.dosage = dose;
+      existing.data.unit = med.unit;
+      existing.data.notes = existing.data.notes ? `${existing.data.notes}\n${note}` : note;
+      existing.confidence = Math.max(existing.confidence, unitsTaken === 1 ? 0.75 : 0.85);
+      existing.title = existing.title || `Log ${med.canonical}`;
+      actions[existingIndex] = existing;
+    }
+  }
+
+  return { ...planned, actions: actions.slice(0, 12) };
+}
+
 const SYSTEM_PROMPT = `You are an assistant for a health tracking app.
 
 You convert the user's free-form text into a SHORT list of actions the app can apply.
@@ -329,6 +414,7 @@ Rules:
 - IMPORTANT: USDA foods generally do NOT include the user's specific cooking oils/fats. If the user says "cooked in olive oil/butter/etc", add a SEPARATE meal item for that oil/fat.
 - If the user mentions common measures, convert when safe:
   - 1 tbsp olive oil ≈ 13.5g (set gramsConsumed and note the assumption)
+- For common OTC medications (e.g. ibuprofen/Advil), set a reasonable default dose if the user doesn't specify (include an assumption note).
 - If no severity is given for a symptom, set severity to 5 (moderate).
 - If dosage/unit is missing for a supplement, use dosage 1 and unit "serving".
 - If date/time is not specified, use null (the client will default to 'now' or 'today').
@@ -436,7 +522,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const enriched = applyCookingHeuristics(text, planned);
+    const enriched = applyMedicationHeuristics(text, applyCookingHeuristics(text, planned));
     return NextResponse.json({ success: true, data: enriched });
   } catch (error) {
     console.error("Assistant plan error:", error);

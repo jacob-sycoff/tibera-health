@@ -29,6 +29,7 @@ type UiMealItem = {
   label: string;
   usdaQuery: string;
   gramsConsumed: number | null;
+  amountUnit: "g" | "oz";
   servings: number;
   candidates: FoodSearchResult[];
   selectedCandidate: FoodSearchResult | null;
@@ -102,6 +103,18 @@ function servingsFromGrams(food: Food | null, grams: number | null): number | nu
     return grams / servingSize;
   }
   return null;
+}
+
+const OZ_TO_G = 28.349523125;
+function gramsFromAmount(amount: number | null, unit: "g" | "oz"): number | null {
+  if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
+  return unit === "oz" ? amount * OZ_TO_G : amount;
+}
+
+function displayAmountFromGrams(grams: number | null, unit: "g" | "oz"): number | null {
+  if (grams == null || !Number.isFinite(grams) || grams <= 0) return null;
+  const v = unit === "oz" ? grams / OZ_TO_G : grams;
+  return Math.round(v * 10) / 10;
 }
 
 function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
@@ -186,6 +199,7 @@ function planToUiActions(plan: AssistantPlan): UiAction[] {
         label: item.label,
         usdaQuery: item.usdaQuery,
         gramsConsumed: item.gramsConsumed ?? null,
+        amountUnit: "g",
         servings: roundServings(item.servings ?? 1),
         candidates: [],
         selectedCandidate: null,
@@ -891,35 +905,67 @@ export function AssistantLauncher() {
                                             />
                                           </div>
                                           <div>
-                                            <label className="text-xs text-slate-500">Grams eaten</label>
-                                            <Input
-                                              inputMode="numeric"
-                                              value={item.gramsConsumed ?? ""}
-                                              onChange={(e) => {
-                                                const v = e.target.value.trim() === "" ? null : Number(e.target.value);
-                                                setActions((prev) =>
-                                                  prev.map((a) => {
-                                                    if (a.id !== action.id || a.type !== "log_meal") return a;
-                                                    return {
-                                                      ...a,
-                                                      data: {
-                                                        ...a.data,
-                                                        items: a.data.items.map((it) => {
-                                                          if (it.key !== item.key) return it;
-                                                          const grams = v != null && Number.isFinite(v) ? v : null;
-                                                          const auto = servingsFromGrams(it.matchedFood, grams);
-                                                          return {
-                                                            ...it,
-                                                            gramsConsumed: grams,
-                                                            servings: auto != null ? roundServings(auto) : it.servings,
-                                                          };
-                                                        }),
-                                                      },
-                                                    };
-                                                  })
-                                                );
-                                              }}
-                                            />
+                                            <label className="text-xs text-slate-500">Amount eaten</label>
+                                            <div className="flex items-center gap-2">
+                                              <Input
+                                                inputMode="decimal"
+                                                value={displayAmountFromGrams(item.gramsConsumed, item.amountUnit) ?? ""}
+                                                onChange={(e) => {
+                                                  const raw = e.target.value.trim();
+                                                  const v = raw === "" ? null : Number(raw);
+                                                  const grams = gramsFromAmount(v != null && Number.isFinite(v) ? v : null, item.amountUnit);
+                                                  setActions((prev) =>
+                                                    prev.map((a) => {
+                                                      if (a.id !== action.id || a.type !== "log_meal") return a;
+                                                      return {
+                                                        ...a,
+                                                        data: {
+                                                          ...a.data,
+                                                          items: a.data.items.map((it) => {
+                                                            if (it.key !== item.key) return it;
+                                                            const auto = servingsFromGrams(it.matchedFood, grams);
+                                                            return {
+                                                              ...it,
+                                                              gramsConsumed: grams,
+                                                              servings: auto != null ? roundServings(auto) : it.servings,
+                                                            };
+                                                          }),
+                                                        },
+                                                      };
+                                                    })
+                                                  );
+                                                }}
+                                              />
+                                              <button
+                                                type="button"
+                                                className={cn(
+                                                  "h-10 rounded-md border px-2 text-xs font-medium transition-colors",
+                                                  "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                                                  "dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/30"
+                                                )}
+                                                onClick={() => {
+                                                  setActions((prev) =>
+                                                    prev.map((a) => {
+                                                      if (a.id !== action.id || a.type !== "log_meal") return a;
+                                                      return {
+                                                        ...a,
+                                                        data: {
+                                                          ...a.data,
+                                                          items: a.data.items.map((it) => {
+                                                            if (it.key !== item.key) return it;
+                                                            return { ...it, amountUnit: it.amountUnit === "g" ? "oz" : "g" };
+                                                          }),
+                                                        },
+                                                      };
+                                                    })
+                                                  );
+                                                }}
+                                                aria-label={item.amountUnit === "g" ? "Switch to ounces" : "Switch to grams"}
+                                                title={item.amountUnit === "g" ? "Switch to oz" : "Switch to g"}
+                                              >
+                                                {item.amountUnit}
+                                              </button>
+                                            </div>
                                           </div>
                                         </div>
 
@@ -939,11 +985,13 @@ export function AssistantLauncher() {
                                                       ...a,
                                                       data: {
                                                         ...a.data,
-                                                        items: a.data.items.map((it) =>
-                                                          it.key === item.key
-                                                            ? { ...it, servings: Number.isFinite(v) && v > 0 ? roundServings(v) : it.servings }
-                                                            : it
-                                                        ),
+                                                        items: a.data.items.map((it) => {
+                                                          if (it.key !== item.key) return it;
+                                                          return {
+                                                            ...it,
+                                                            servings: Number.isFinite(v) && v > 0 ? roundServings(v) : it.servings,
+                                                          };
+                                                        }),
                                                       },
                                                     };
                                                   })
