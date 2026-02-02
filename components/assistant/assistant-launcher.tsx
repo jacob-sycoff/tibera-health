@@ -402,10 +402,11 @@ export function AssistantLauncher() {
     const text = input.trim();
     if (!text || isPlanning) return;
 
+    const hadExistingActions = actionsRef.current.some((a) => a.status !== "applied");
+
     setIsPlanning(true);
     setMessages((prev) => [...prev, { role: "user", text }]);
     setInput("");
-    setPlanMessage(null);
 
     const history = [...messages, { role: "user" as const, text }].slice(-8);
     const existingActions = uiActionsToPlanActions(actionsRef.current);
@@ -413,28 +414,50 @@ export function AssistantLauncher() {
     const result = await planAssistantActions({ text, history, existingActions });
     if (!result.success) {
       toast.error(result.error);
-      setMessages((prev) => [...prev, { role: "assistant", text: "I couldn’t turn that into actions. Try adding a bit more detail." }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: hadExistingActions
+            ? "I couldn’t update the suggested actions right now, so I kept your existing suggestions below."
+            : "I couldn’t turn that into actions. Try rephrasing as: “I ate breakfast: 2 eggs, 1 waffle, 2 slices bacon.”",
+        },
+      ]);
+      setIsPlanning(false);
+      return;
+    }
+
+    const nextActions = planToUiActions(result.data);
+    const applied = actionsRef.current.filter((a) => a.status === "applied");
+
+    if (nextActions.length > 0) {
+      setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
+      setPlanMessage(result.data.message);
+      const merged = [...applied, ...nextActions];
+      setActions(merged);
+      actionsRef.current = merged;
+      // Background resolve USDA matches for meal items
+      void resolveAllMeals(nextActions);
+      setIsPlanning(false);
+      return;
+    }
+
+    // If we had existing suggestions, treat an empty action list as "no change" and keep the list.
+    if (hadExistingActions) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "Got it. I kept your existing suggestions below—edit any item details and apply." },
+      ]);
+      setPlanMessage("Updated details. Review and apply the suggested logs below.");
+      setActions(actionsRef.current);
       setIsPlanning(false);
       return;
     }
 
     setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
     setPlanMessage(result.data.message);
-
-    const applied = actionsRef.current.filter((a) => a.status === "applied");
-    const nextActions = planToUiActions(result.data);
-    if (nextActions.length > 0) {
-      const merged = [...applied, ...nextActions];
-      setActions(merged);
-      actionsRef.current = merged;
-    } else {
-      // Keep any existing un-applied actions if the assistant couldn't produce new ones.
-      setActions(actionsRef.current);
-    }
+    setActions([...applied]);
     setIsPlanning(false);
-
-    // Background resolve USDA matches for meal items
-    void resolveAllMeals(nextActions);
   }, [actionsRef, input, isPlanning, messages, toast, resolveAllMeals]);
 
   const startListening = useCallback(() => {
@@ -680,7 +703,7 @@ export function AssistantLauncher() {
             </Tabs>
           </div>
 
-          {planMessage && hasAnyActions && (
+          {hasAnyActions && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Suggested actions</h3>
@@ -699,6 +722,11 @@ export function AssistantLauncher() {
                   </Button>
                 </div>
               </div>
+              {planMessage && (
+                <div className="text-sm text-slate-600 dark:text-slate-300">
+                  {planMessage}
+                </div>
+              )}
 
               <div className="space-y-3">
                 {actions.map((action) => (

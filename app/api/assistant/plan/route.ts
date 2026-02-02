@@ -127,6 +127,135 @@ function shouldUpgradeToStrongModel(plan: AssistantPlan): boolean {
   return false;
 }
 
+function normalizeKey(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function hasMealItem(actions: AssistantPlan["actions"], needle: string): boolean {
+  const n = normalizeKey(needle);
+  return actions.some((a) => {
+    if (a.type !== "log_meal") return false;
+    return a.data.items.some((it) => normalizeKey(it.usdaQuery).includes(n) || normalizeKey(it.label).includes(n));
+  });
+}
+
+const COOKING_FAT_GRAMS_PER_TBSP: Record<string, number> = {
+  "olive oil": 13.5,
+  "avocado oil": 13.5,
+  "canola oil": 13.6,
+  "vegetable oil": 13.6,
+  "coconut oil": 13.6,
+  "sesame oil": 13.6,
+  butter: 14,
+  ghee: 13,
+};
+
+function extractTablespoons(text: string): number | null {
+  const t = text.toLowerCase();
+  const m1 = t.match(/(\d+(?:\.\d+)?)\s*(tbsp|tbsps|tablespoon|tablespoons)\b/);
+  if (m1) return Number(m1[1]);
+  const m2 = t.match(/\b(one|two|three)\s*(tbsp|tbsps|tablespoon|tablespoons)\b/);
+  if (m2) {
+    const map: Record<string, number> = { one: 1, two: 2, three: 3 };
+    return map[m2[1]] ?? null;
+  }
+  return null;
+}
+
+function extractTeaspoons(text: string): number | null {
+  const t = text.toLowerCase();
+  const m1 = t.match(/(\d+(?:\.\d+)?)\s*(tsp|tsps|teaspoon|teaspoons)\b/);
+  if (m1) return Number(m1[1]);
+  const m2 = t.match(/\b(one|two|three)\s*(tsp|tsps|teaspoon|teaspoons)\b/);
+  if (m2) {
+    const map: Record<string, number> = { one: 1, two: 2, three: 3 };
+    return map[m2[1]] ?? null;
+  }
+  return null;
+}
+
+function applyCookingHeuristics(inputText: string, planned: AssistantPlan): AssistantPlan {
+  const text = inputText.toLowerCase();
+  const actions = planned.actions.map((a) => ({ ...a }));
+
+  const mealIndex = actions.findIndex((a) => a.type === "log_meal");
+  if (mealIndex === -1) return planned;
+
+  const meal = actions[mealIndex] as Extract<AssistantPlan["actions"][number], { type: "log_meal" }>;
+
+  // 1) Cooking fats/oils: add as separate items (USDA foods generally don't include the user's specific cooking fat).
+  for (const fatName of Object.keys(COOKING_FAT_GRAMS_PER_TBSP)) {
+    if (!text.includes(fatName)) continue;
+    if (hasMealItem(actions, fatName)) continue;
+
+    const tbsp = extractTablespoons(text);
+    const tsp = extractTeaspoons(text);
+    const gramsPerTbsp = COOKING_FAT_GRAMS_PER_TBSP[fatName];
+
+    let grams: number | null = null;
+    let note: string | undefined;
+    if (tbsp && Number.isFinite(tbsp) && tbsp > 0) {
+      grams = Math.round(tbsp * gramsPerTbsp * 10) / 10;
+      note = `Assumed ${tbsp} tbsp ${fatName} ≈ ${grams}g.`;
+    } else if (tsp && Number.isFinite(tsp) && tsp > 0) {
+      grams = Math.round((tsp / 3) * gramsPerTbsp * 10) / 10;
+      note = `Assumed ${tsp} tsp ${fatName} ≈ ${grams}g.`;
+    }
+
+    meal.data.items = [
+      ...meal.data.items,
+      {
+        label: fatName,
+        usdaQuery: fatName,
+        gramsConsumed: grams,
+        servings: null,
+        ...(note ? { notes: note } : {}),
+      },
+    ];
+  }
+
+  // 2) Salt: include as a note unless an explicit amount is given.
+  if (/\bsalt\b/.test(text) && !hasMealItem(actions, "salt")) {
+    const tbsp = extractTablespoons(text);
+    const tsp = extractTeaspoons(text);
+    const explicit = (tbsp != null && text.includes("salt")) || (tsp != null && text.includes("salt"));
+
+    if (explicit) {
+      // Table salt ~ 18g/tbsp, ~6g/tsp.
+      let grams: number | null = null;
+      let note: string | undefined;
+      if (tbsp && Number.isFinite(tbsp) && tbsp > 0) {
+        grams = Math.round(tbsp * 18 * 10) / 10;
+        note = `Assumed ${tbsp} tbsp salt ≈ ${grams}g.`;
+      } else if (tsp && Number.isFinite(tsp) && tsp > 0) {
+        grams = Math.round(tsp * 6 * 10) / 10;
+        note = `Assumed ${tsp} tsp salt ≈ ${grams}g.`;
+      }
+      meal.data.items = [
+        ...meal.data.items,
+        {
+          label: "salt",
+          usdaQuery: "salt table",
+          gramsConsumed: grams,
+          servings: null,
+          ...(note ? { notes: note } : {}),
+        },
+      ];
+    } else {
+      const existing = meal.data.notes?.trim();
+      const appended = "Salt added (amount unknown).";
+      meal.data.notes = existing ? `${existing}\n${appended}` : appended;
+    }
+  }
+
+  actions[mealIndex] = meal;
+  return { ...planned, actions };
+}
+
 const SYSTEM_PROMPT = `You are an assistant for a health tracking app.
 
 You convert the user's free-form text into a SHORT list of actions the app can apply.
@@ -197,6 +326,7 @@ Rules:
 - Prefer 2-6 actions total.
 - For meal items: create USDA-friendly queries (e.g. "broccoli steamed", "chicken breast grilled", "white rice cooked").
 - If the user mentions eating only part of something, prefer gramsConsumed if possible; otherwise include servings (e.g. 0.5).
+- IMPORTANT: USDA foods generally do NOT include the user's specific cooking oils/fats. If the user says "cooked in olive oil/butter/etc", add a SEPARATE meal item for that oil/fat.
 - If the user mentions common measures, convert when safe:
   - 1 tbsp olive oil ≈ 13.5g (set gramsConsumed and note the assumption)
 - If no severity is given for a symptom, set severity to 5 (moderate).
@@ -306,7 +436,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, data: planned });
+    const enriched = applyCookingHeuristics(text, planned);
+    return NextResponse.json({ success: true, data: enriched });
   } catch (error) {
     console.error("Assistant plan error:", error);
     return NextResponse.json({ success: false, error: "Failed to plan actions. Please try again." }, { status: 500 });
