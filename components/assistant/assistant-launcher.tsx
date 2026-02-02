@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, ChevronUp, Loader2, Mic, Send, Sparkles, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, Mic, Send, Sparkles, X, Volume2, MessageSquare } from "lucide-react";
 import { Modal, ModalContent, ModalDescription, ModalFooter, ModalHeader, ModalTitle } from "@/components/ui/modal";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +23,7 @@ import {
 import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 
 type ChatMessage = { role: "user" | "assistant"; text: string };
+type VoicePhase = "idle" | "dictating" | "speaking" | "awaiting_consent" | "applying";
 
 type UiMealItem = {
   key: string;
@@ -330,7 +330,7 @@ export function AssistantLauncher() {
   const supplementsList = useSupplementsList();
 
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"chat" | "conversation">("chat");
+  const [mode, setMode] = useState<"chat" | "conversation">("conversation");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -338,11 +338,26 @@ export function AssistantLauncher() {
   const [actions, setActions] = useState<UiAction[]>([]);
   const actionsRef = useRef<UiAction[]>([]);
 
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
+  const voicePhaseRef = useRef<VoicePhase>("idle");
+  const [speechEnabled, setSpeechEnabled] = useState(true);
+  const handsFree = mode === "conversation";
+
   const [isListening, setIsListening] = useState(false);
   const speechRef = useRef<any>(null);
   const listeningDesiredRef = useRef(false);
   const dictationFinalRef = useRef<string>("");
   const restartBackoffMsRef = useRef<number>(150);
+  const listeningPurposeRef = useRef<"dictation" | "consent">("dictation");
+  const silenceTimerRef = useRef<number | null>(null);
+  const lastTranscriptAtRef = useRef<number>(0);
+  const consentBufferRef = useRef<string>("");
+  const handleConsentTextRef = useRef<(text: string) => void>(() => {});
+  const pendingVoiceConfirmRef = useRef(false);
+  const speakEnabledRef = useRef(true);
+  const startListeningRef = useRef<() => void>(() => {});
+  const stopListeningRef = useRef<() => void>(() => {});
+  const submitRef = useRef<() => void>(() => {});
 
   const hasAnySelected = useMemo(() => actions.some((a) => a.selected), [actions]);
   const hasAnyActions = actions.length > 0;
@@ -350,6 +365,121 @@ export function AssistantLauncher() {
   useEffect(() => {
     actionsRef.current = actions;
   }, [actions]);
+
+  useEffect(() => {
+    voicePhaseRef.current = voicePhase;
+  }, [voicePhase]);
+
+  useEffect(() => {
+    speakEnabledRef.current = speechEnabled;
+  }, [speechEnabled]);
+
+  const supportsTts = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return (
+      typeof window.speechSynthesis !== "undefined" &&
+      typeof (window as unknown as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance !== "undefined"
+    );
+  }, []);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current != null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!supportsTts) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+  }, [supportsTts]);
+
+  const speak = useCallback(
+    async (text: string) => {
+      if (!supportsTts) return;
+      if (mode !== "conversation") return;
+      if (!speakEnabledRef.current) return;
+
+      stopSpeaking();
+      // Avoid feedback loops: don't listen while speaking.
+      stopListeningRef.current();
+      setVoicePhase("speaking");
+
+      await new Promise<void>((resolve) => {
+        try {
+          const Utter = (window as unknown as { SpeechSynthesisUtterance: any }).SpeechSynthesisUtterance;
+          const utter = new Utter(text);
+          utter.rate = 1.02;
+          utter.pitch = 1.0;
+          utter.onend = () => resolve();
+          utter.onerror = () => resolve();
+          window.speechSynthesis.speak(utter);
+        } catch {
+          resolve();
+        }
+      });
+    },
+    [mode, stopSpeaking, supportsTts]
+  );
+
+  const describeActionsForSpeech = useCallback((plannedActions: UiAction[]) => {
+    const parts: string[] = [];
+    for (const a of plannedActions) {
+      if (!a.selected) continue;
+      if (a.type === "log_meal") {
+        const mealType = a.data.mealType || defaultMealTypeFromClock();
+        const items = a.data.items
+          .map((it) => it.label.trim() || it.usdaQuery.trim())
+          .filter(Boolean)
+          .slice(0, 6)
+          .join(", ");
+        parts.push(`Log ${mealType}: ${items}.`);
+      } else if (a.type === "log_symptom") {
+        parts.push(`Log symptom: ${a.data.symptom}.`);
+      } else if (a.type === "log_supplement") {
+        const dose =
+          a.data.dosage != null && a.data.unit
+            ? `${a.data.dosage} ${a.data.unit}`
+            : undefined;
+        parts.push(`Log ${a.data.supplement}${dose ? `, ${dose}` : ""}.`);
+      }
+    }
+    return parts.join(" ");
+  }, []);
+
+  const hasUnresolvedMealMatches = useCallback((plannedActions: UiAction[]) => {
+    return plannedActions.some((a) => {
+      if (!a.selected) return false;
+      if (a.type !== "log_meal") return false;
+      return a.data.items.some((it) => !it.matchedFood);
+    });
+  }, []);
+
+  const waitForMealMatches = useCallback(
+    async (timeoutMs: number) => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        if (!hasUnresolvedMealMatches(actionsRef.current)) return true;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return !hasUnresolvedMealMatches(actionsRef.current);
+    },
+    [hasUnresolvedMealMatches]
+  );
+
+  const startConsentListening = useCallback(() => {
+    if (mode !== "conversation") return;
+    listeningPurposeRef.current = "consent";
+    consentBufferRef.current = "";
+    setVoicePhase("awaiting_consent");
+    startListeningRef.current();
+  }, [mode]);
 
   const resolveMealItem = useCallback(async (actionId: string, itemKey: string) => {
     setActions((prev) =>
@@ -482,6 +612,23 @@ export function AssistantLauncher() {
       // Background resolve USDA matches for meal items
       void resolveAllMeals(nextActions);
       setIsPlanning(false);
+
+      if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
+        pendingVoiceConfirmRef.current = false;
+        void (async () => {
+          const ok = await waitForMealMatches(7000);
+          if (!ok) {
+            await speak("I need you to confirm a food match on screen before I can log this.");
+            setVoicePhase("idle");
+            return;
+          }
+          const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
+          await speak(`${summary} Say yes to confirm, or no to cancel.`);
+          startConsentListening();
+        })();
+      } else {
+        setVoicePhase("idle");
+      }
       return;
     }
 
@@ -494,6 +641,7 @@ export function AssistantLauncher() {
       setPlanMessage("Updated details. Review and apply the suggested logs below.");
       setActions(actionsRef.current);
       setIsPlanning(false);
+      setVoicePhase("idle");
       return;
     }
 
@@ -501,7 +649,48 @@ export function AssistantLauncher() {
     setPlanMessage(result.data.message);
     setActions([...applied]);
     setIsPlanning(false);
-  }, [actionsRef, input, isPlanning, messages, toast, resolveAllMeals]);
+    if (mode === "conversation" && handsFree) {
+      void (async () => {
+        await speak(result.data.message);
+        listeningPurposeRef.current = "dictation";
+        startListeningRef.current();
+      })();
+    }
+  }, [
+    actionsRef,
+    describeActionsForSpeech,
+    handsFree,
+    input,
+    isPlanning,
+    messages,
+    mode,
+    resolveAllMeals,
+    speak,
+    startConsentListening,
+    toast,
+    waitForMealMatches,
+  ]);
+
+  useEffect(() => {
+    submitRef.current = () => {
+      void submit();
+    };
+  }, [submit]);
+
+  const stopListening = useCallback(() => {
+    listeningDesiredRef.current = false;
+    clearSilenceTimer();
+    if (speechRef.current) {
+      try {
+        speechRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+    setIsListening(false);
+    speechRef.current = null;
+    if (voicePhaseRef.current === "dictating") setVoicePhase("idle");
+  }, [clearSilenceTimer]);
 
   const startListening = useCallback(() => {
     const SpeechRecognition =
@@ -517,7 +706,14 @@ export function AssistantLauncher() {
     listeningDesiredRef.current = true;
     setIsListening(true);
     restartBackoffMsRef.current = 150;
-    dictationFinalRef.current = input.trim() ? `${input.trim()} ` : "";
+
+    if (listeningPurposeRef.current === "dictation") {
+      dictationFinalRef.current = input.trim() ? `${input.trim()} ` : "";
+      lastTranscriptAtRef.current = Date.now();
+      setVoicePhase("dictating");
+    } else {
+      consentBufferRef.current = "";
+    }
 
     const recognition = new SpeechRecognition();
     speechRef.current = recognition;
@@ -529,11 +725,38 @@ export function AssistantLauncher() {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) dictationFinalRef.current += transcript;
-        else interim += transcript;
+        if (event.results[i].isFinal) {
+          if (listeningPurposeRef.current === "consent") consentBufferRef.current += transcript;
+          else dictationFinalRef.current += transcript;
+        } else interim += transcript;
       }
+
+      lastTranscriptAtRef.current = Date.now();
+
+      if (listeningPurposeRef.current === "consent") {
+        const merged = `${consentBufferRef.current}${interim}`.trim();
+        const lastIsFinal = Boolean(event.results?.[event.results.length - 1]?.isFinal);
+        if (lastIsFinal && merged) handleConsentTextRef.current(merged);
+        return;
+      }
+
       const merged = `${dictationFinalRef.current}${interim}`.trim();
       if (merged) setInput(merged);
+
+      if (handsFree) {
+        clearSilenceTimer();
+        silenceTimerRef.current = window.setTimeout(() => {
+          if (!handsFree) return;
+          if (voicePhaseRef.current !== "dictating") return;
+          const elapsed = Date.now() - lastTranscriptAtRef.current;
+          if (elapsed < 1000) return;
+          const text = (dictationFinalRef.current || input).trim();
+          if (!text) return;
+          pendingVoiceConfirmRef.current = true;
+          stopListening();
+          submitRef.current();
+        }, 1250);
+      }
     };
 
     recognition.onerror = (event: any) => {
@@ -585,27 +808,33 @@ export function AssistantLauncher() {
       setIsListening(false);
       speechRef.current = null;
     }
-  }, [input, toast]);
+  }, [clearSilenceTimer, handsFree, input, stopListening, toast]);
 
-  const stopListening = useCallback(() => {
-    listeningDesiredRef.current = false;
-    if (speechRef.current) {
-      try {
-        speechRef.current.stop();
-      } catch {
-        // ignore
-      }
-    }
-    setIsListening(false);
-    speechRef.current = null;
-  }, []);
+  useEffect(() => {
+    startListeningRef.current = startListening;
+    stopListeningRef.current = stopListening;
+  }, [startListening, stopListening]);
 
   useEffect(() => {
     if (!open) {
       stopListening();
-      setTab("chat");
+      stopSpeaking();
+      setVoicePhase("idle");
+      return;
     }
-  }, [open, stopListening]);
+
+    if (mode === "conversation") {
+      // Voice-first: start listening as soon as the modal opens (gesture already occurred).
+      if (handsFree && voicePhaseRef.current === "idle" && !isListening) {
+        listeningPurposeRef.current = "dictation";
+        startListening();
+      }
+    } else {
+      // Chat mode should never auto-start listening.
+      stopListening();
+      setVoicePhase("idle");
+    }
+  }, [handsFree, isListening, mode, open, startListening, stopListening, stopSpeaking]);
 
   const applySelected = useCallback(async () => {
     const selectedActions = actions.filter((a) => a.selected);
@@ -682,6 +911,51 @@ export function AssistantLauncher() {
     }
   }, [actions, createCustomSymptom, createMealLog, createSupplementLog, createSymptomLog, supplementsList.data, symptomsList.data, toast]);
 
+  useEffect(() => {
+    handleConsentTextRef.current = (text: string) => {
+      const t = text.trim().toLowerCase();
+      if (!t) return;
+      if (voicePhaseRef.current !== "awaiting_consent") return;
+
+      if (/\b(yes|yep|yeah|confirm|go ahead|do it|apply|sounds good)\b/.test(t)) {
+        stopListening();
+        void (async () => {
+          setVoicePhase("applying");
+          await applySelected();
+          await speak("Done.");
+          setVoicePhase("idle");
+          if (handsFree && open && mode === "conversation") {
+            listeningPurposeRef.current = "dictation";
+            startListeningRef.current();
+          }
+        })();
+        return;
+      }
+
+      if (/\b(no|nope|cancel|stop|never mind|nevermind)\b/.test(t)) {
+        stopListening();
+        void (async () => {
+          await speak("Okay. I won't add anything.");
+          setVoicePhase("idle");
+          if (handsFree && open && mode === "conversation") {
+            listeningPurposeRef.current = "dictation";
+            startListeningRef.current();
+          }
+        })();
+        return;
+      }
+
+      if (/\b(repeat|again|say that again)\b/.test(t)) {
+        stopListening();
+        void (async () => {
+          const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
+          await speak(`${summary} Say yes to confirm, or no to cancel.`);
+          startConsentListening();
+        })();
+      }
+    };
+  }, [applySelected, describeActionsForSpeech, handsFree, mode, open, speak, startConsentListening, stopListening]);
+
   return (
     <>
       <button
@@ -707,19 +981,46 @@ export function AssistantLauncher() {
               <ModalDescription>Describe what happened. Review the suggested logs and apply them.</ModalDescription>
             </div>
           </div>
-          <div className="mt-4">
-            <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-              <TabsList>
-                <TabsTrigger value="chat">
-                  <Bot className="w-4 h-4 mr-2" />
-                  Chat
-                </TabsTrigger>
-                <TabsTrigger value="conversation">
-                  <Mic className="w-4 h-4 mr-2" />
-                  Conversation
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="inline-flex items-center rounded-[var(--radius-lg)] bg-slate-100 p-1 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-1.5 text-sm font-medium transition-all",
+                  mode === "chat"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
+                )}
+                onClick={() => setMode("chat")}
+              >
+                <MessageSquare className="w-4 h-4" />
+                Chat
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-1.5 text-sm font-medium transition-all",
+                  mode === "conversation"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
+                )}
+                onClick={() => setMode("conversation")}
+              >
+                <Volume2 className="w-4 h-4" />
+                Conversation
+              </button>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSpeechEnabled((v) => !v)}
+              aria-label={speechEnabled ? "Mute voice" : "Unmute voice"}
+              title={speechEnabled ? "Mute voice" : "Unmute voice"}
+            >
+              <Volume2 className={cn("w-4 h-4 mr-2", !speechEnabled && "opacity-40")} />
+              {speechEnabled ? "Voice on" : "Voice off"}
+            </Button>
           </div>
         </ModalHeader>
 
@@ -747,45 +1048,52 @@ export function AssistantLauncher() {
               )}
             </div>
 
-            <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="mt-3">
-              <TabsContent value="chat" className="mt-0">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    rows={2}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
-                    placeholder="What should I log?"
-                  />
-                  <Button onClick={submit} disabled={isPlanning || !input.trim()} size="icon" aria-label="Send">
-                    {isPlanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </Button>
+            <div className="mt-3 space-y-2">
+              {mode === "conversation" && (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {voicePhase === "awaiting_consent"
+                    ? "Listening for “yes” to confirm or “no” to cancel…"
+                    : voicePhase === "speaking"
+                    ? "Speaking…"
+                    : isListening
+                    ? "Listening… (pause to submit)"
+                    : "Ready."}
                 </div>
-              </TabsContent>
+              )}
 
-              <TabsContent value="conversation" className="mt-0">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    rows={2}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
-                    placeholder="Speak or type…"
-                  />
-                  <Button
-                    variant={isListening ? "destructive" : "outline"}
-                    onClick={isListening ? stopListening : startListening}
-                    size="icon"
-                    aria-label={isListening ? "Stop listening" : "Start listening"}
-                  >
-                    {isListening ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </Button>
-                  <Button onClick={submit} disabled={isPlanning || !input.trim()} size="icon" aria-label="Send">
-                    {isPlanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
+                  placeholder={mode === "conversation" ? "Speak or type…" : "Type or dictate…"}
+                />
+                <Button
+                  variant={isListening ? "destructive" : "outline"}
+                  onClick={() => {
+                    listeningPurposeRef.current = mode === "conversation" && voicePhase === "awaiting_consent" ? "consent" : "dictation";
+                    if (isListening) stopListening();
+                    else startListening();
+                  }}
+                  size="icon"
+                  aria-label={isListening ? "Stop listening" : "Start listening"}
+                >
+                  {isListening ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </Button>
+                <Button
+                  onClick={() => {
+                    pendingVoiceConfirmRef.current = mode === "conversation";
+                    void submit();
+                  }}
+                  disabled={isPlanning || !input.trim()}
+                  size="icon"
+                  aria-label="Send"
+                >
+                  {isPlanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
           </div>
 
           {hasAnyActions && (
