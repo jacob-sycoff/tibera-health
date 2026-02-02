@@ -462,8 +462,8 @@ export function AssistantLauncher() {
         {
           role: "assistant",
           text: hadExistingActions
-            ? "I couldn’t update the suggested actions right now, so I kept your existing suggestions below."
-            : "I couldn’t turn that into actions. Try rephrasing as: “I ate breakfast: 2 eggs, 1 waffle, 2 slices bacon.”",
+            ? "I couldn't update the suggested actions right now, so I kept your existing suggestions below."
+            : "Sorry, I had trouble with that. Could you tell me a bit more? For example, what meal was it, or roughly how much of each item?",
         },
       ]);
       setIsPlanning(false);

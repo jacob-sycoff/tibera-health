@@ -21,8 +21,7 @@ const MealItemSchema = z
     gramsConsumed: z.number().positive().nullable().optional(),
     servings: z.number().positive().nullable().optional(),
     notes: z.string().optional(),
-  })
-  .strict();
+  });
 
 const MealActionSchema = z
   .object({
@@ -35,10 +34,8 @@ const MealActionSchema = z
         mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).nullable().optional(),
         items: z.array(MealItemSchema).min(1),
         notes: z.string().optional(),
-      })
-      .strict(),
-  })
-  .strict();
+      }),
+  });
 
 const SymptomActionSchema = z
   .object({
@@ -52,10 +49,8 @@ const SymptomActionSchema = z
         date: DateSchema.nullable().optional(),
         time: TimeSchema.nullable().optional(),
         notes: z.string().optional(),
-      })
-      .strict(),
-  })
-  .strict();
+      }),
+  });
 
 const SupplementActionSchema = z
   .object({
@@ -70,10 +65,8 @@ const SupplementActionSchema = z
         date: DateSchema.nullable().optional(),
         time: TimeSchema.nullable().optional(),
         notes: z.string().optional(),
-      })
-      .strict(),
-  })
-  .strict();
+      }),
+  });
 
 const ActionSchema = z.discriminatedUnion("type", [
   MealActionSchema,
@@ -85,8 +78,7 @@ const AssistantPlanSchema = z
   .object({
     message: z.string().min(1),
     actions: z.array(ActionSchema).max(12),
-  })
-  .strict();
+  });
 
 type AssistantPlan = z.infer<typeof AssistantPlanSchema>;
 
@@ -109,6 +101,26 @@ const RequestSchema = z
     existingActions: z.array(ActionSchema).max(12).optional(),
   })
   .strict();
+
+/** Fix common LLM JSON quirks: string "null", wrong number types, etc. */
+function coerceLlmJson(raw: unknown): unknown {
+  if (raw == null || typeof raw !== "object") return raw;
+  if (Array.isArray(raw)) return raw.map(coerceLlmJson);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v === "null" || v === "none" || v === "None") {
+      out[k] = null;
+    } else if (typeof v === "string" && ["confidence", "severity", "gramsConsumed", "servings", "dosage"].includes(k)) {
+      const n = Number(v);
+      out[k] = Number.isFinite(n) ? n : v;
+    } else if (typeof v === "object" && v !== null) {
+      out[k] = coerceLlmJson(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
 
 function cleanJson(text: string): string {
   let jsonText = text.trim();
@@ -484,6 +496,8 @@ If existing actions are provided, update them instead of creating duplicates.
 Example: if the user says "they were cooked in 1 tbsp olive oil", and there is an existing meal action,
 add an item like "olive oil" (usdaQuery "olive oil") and add a note about the tablespoon.
 
+CRITICAL: You MUST ALWAYS return valid JSON. Never refuse or say you can't parse. If the user describes food, log it.
+
 Return ONLY valid JSON matching this exact schema:
 {
   "message": "string",
@@ -538,8 +552,12 @@ data:
 }
 
 Rules:
-- Include actions implied by the user. If unsure, ask for clarification in "message" and keep actions minimal.
-- Prefer 2-6 actions total.
+- ALWAYS produce actions for every food/symptom/supplement the user mentions. Even complex meals with many items.
+- Each distinct food the user mentions should be a separate item in the meal action.
+- If anything is unclear or ambiguous, include what you CAN figure out as actions and ask about the rest in "message".
+  Example: if user says "I ate chicken and some veggies", log the chicken and ask "What kind of veggies?" in message.
+- Do NOT return an empty actions array if the user clearly described food — make your best guess.
+- Prefer 1-6 actions total. A single meal with many items is just 1 action with multiple items.
 - For meal items: create USDA-friendly queries (e.g. "broccoli steamed", "chicken breast grilled", "white rice cooked").
 - If the user mentions eating only part of something, prefer gramsConsumed if possible; otherwise include servings (e.g. 0.5).
 - IMPORTANT: USDA foods generally do NOT include the user's specific cooking oils/fats. If the user says "cooked in olive oil/butter/etc", add a SEPARATE meal item for that oil/fat.
@@ -549,7 +567,8 @@ Rules:
 - If no severity is given for a symptom, set severity to 5 (moderate).
 - If dosage/unit is missing for a supplement, use dosage 1 and unit "serving".
 - If date/time is not specified, use null (the client will default to 'now' or 'today').
-- confidence must be 0-1 and reflect how certain you are that the action is correct.`;
+- confidence must be 0-1 and reflect how certain you are that the action is correct.
+- Handle typos, informal language, and natural phrasing gracefully. Users won't speak in a rigid format.`;
 
 async function tryOpenAiPlan(args: {
   model: string;
@@ -590,7 +609,7 @@ async function tryOpenAiPlan(args: {
     body: JSON.stringify({
       model: args.model,
       temperature: 0.2,
-      max_tokens: 900,
+      max_tokens: 1500,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `${userPrompt}${historyBlock}${existingActionsBlock}` },
@@ -605,10 +624,17 @@ async function tryOpenAiPlan(args: {
   if (!text) return null;
 
   try {
-    const data = JSON.parse(cleanJson(text)) as unknown;
-    const parsed = AssistantPlanSchema.safeParse(data);
-    if (!parsed.success) return null;
-    return parsed.data;
+    const raw = JSON.parse(cleanJson(text)) as unknown;
+    const parsed = AssistantPlanSchema.safeParse(raw);
+    if (parsed.success) return parsed.data;
+
+    // Log the Zod error for debugging, then try coercing common LLM quirks.
+    console.warn(`[assistant] Zod strict parse failed for model=${args.model}:`, parsed.error.issues.slice(0, 5));
+    const coerced = coerceLlmJson(raw);
+    const retry = AssistantPlanSchema.safeParse(coerced);
+    if (retry.success) return retry.data;
+    console.warn(`[assistant] Zod coerced parse also failed:`, retry.error.issues.slice(0, 5));
+    return null;
   } catch {
     return null;
   }
@@ -644,6 +670,16 @@ export async function POST(request: NextRequest) {
       if (upgraded) planned = upgraded;
     } else if (!planned) {
       planned = await tryOpenAiPlan({ model: models.strong, text, nowIso, today, history, existingActions });
+    }
+
+    if (!planned) {
+      // Last-resort recovery: ask the strong model with a simpler prompt.
+      planned = await tryOpenAiPlan({
+        model: models.strong,
+        text: `The user said: "${text}"\n\nPlease extract ALL food items, symptoms, or supplements mentioned. Create one log_meal action containing every food item as a separate entry. If unsure about quantities, set gramsConsumed to null. Always return valid JSON.`,
+        nowIso,
+        today,
+      });
     }
 
     if (!planned) {
