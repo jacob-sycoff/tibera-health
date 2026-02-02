@@ -363,6 +363,8 @@ export function AssistantLauncher() {
 
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("disconnected");
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const [remoteAudioStream, setRemoteAudioStream] = useState<MediaStream | null>(null);
+  const [needsAudioTap, setNeedsAudioTap] = useState(false);
   const rtcPeerRef = useRef<RTCPeerConnection | null>(null);
   const rtcDataChannelRef = useRef<RTCDataChannel | null>(null);
   const rtcLocalStreamRef = useRef<MediaStream | null>(null);
@@ -406,6 +408,20 @@ export function AssistantLauncher() {
     const w = window as unknown as { RTCPeerConnection?: unknown };
     return Boolean(w.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
   }, []);
+
+  useEffect(() => {
+    if (!remoteAudioStream) return;
+    const audioEl = rtcRemoteAudioRef.current;
+    if (!audioEl) return;
+    try {
+      audioEl.srcObject = remoteAudioStream;
+      audioEl.muted = false;
+      audioEl.volume = 1.0;
+      void audioEl.play().then(() => setNeedsAudioTap(false)).catch(() => setNeedsAudioTap(true));
+    } catch {
+      setNeedsAudioTap(true);
+    }
+  }, [remoteAudioStream]);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current != null) {
@@ -454,6 +470,8 @@ export function AssistantLauncher() {
     realtimeSpeakingPendingRef.current = false;
     realtimeTranscribePendingRef.current = false;
     realtimeTranscribeTextRef.current = "";
+    setRemoteAudioStream(null);
+    setNeedsAudioTap(false);
     if (realtimeTranscribeTimerRef.current != null) {
       try {
         window.clearTimeout(realtimeTranscribeTimerRef.current);
@@ -615,6 +633,7 @@ export function AssistantLauncher() {
 
       const key = tokenJson?.data?.value as string;
       const model = (tokenJson?.data?.model as string) || "gpt-realtime";
+      const voice = (tokenJson?.data?.voice as string) || "marin";
 
       const pc = new RTCPeerConnection();
       rtcPeerRef.current = pc;
@@ -630,12 +649,8 @@ export function AssistantLauncher() {
       };
 
       pc.ontrack = (e) => {
-        const audioEl = rtcRemoteAudioRef.current;
         const stream = e.streams?.[0];
-        if (audioEl && stream) {
-          audioEl.srcObject = stream;
-          void audioEl.play().catch(() => {});
-        }
+        if (stream) setRemoteAudioStream(stream);
       };
 
       const localStream = await navigator.mediaDevices.getUserMedia({
@@ -668,6 +683,7 @@ export function AssistantLauncher() {
         if (listeningDesiredRef.current) setIsListening(true);
 
         // Keep the realtime model silent by default; the app explicitly requests spoken responses.
+        setNeedsAudioTap(false);
         sendRealtimeEvent({
           type: "session.update",
           session: {
@@ -684,6 +700,7 @@ export function AssistantLauncher() {
                   silence_duration_ms: 650,
                 },
               },
+              output: { voice },
             },
             instructions:
               "You are the Tibera Health voice interface. Do not proactively respond. Only speak when the client explicitly requests a response.",
@@ -1491,6 +1508,23 @@ export function AssistantLauncher() {
                 >
                   {isListening ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                 </Button>
+                {mode === "conversation" && needsAudioTap && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const audioEl = rtcRemoteAudioRef.current;
+                      if (!audioEl) return;
+                      void audioEl.play()
+                        .then(() => setNeedsAudioTap(false))
+                        .catch(() => {
+                          toast.error("Click again to enable audio output");
+                        });
+                    }}
+                    size="sm"
+                  >
+                    Enable audio
+                  </Button>
+                )}
                 <Button
                   onClick={() => {
                     pendingVoiceConfirmRef.current = mode === "conversation";
