@@ -57,14 +57,18 @@ const AssistantPlanSchema = z.object({
 
 export type AssistantPlan = z.infer<typeof AssistantPlanSchema>;
 
-export async function planAssistantActions(args: { text: string }): Promise<{ success: true; data: AssistantPlan } | { success: false; error: string }> {
+export async function planAssistantActions(args: {
+  text: string;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
+  existingActions?: AssistantPlan["actions"];
+}): Promise<{ success: true; data: AssistantPlan } | { success: false; error: string }> {
   const nowIso = new Date().toISOString();
   const today = new Date().toISOString().slice(0, 10);
 
   const response = await fetch("/api/assistant/plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: args.text, nowIso, today }),
+    body: JSON.stringify({ text: args.text, nowIso, today, history: args.history, existingActions: args.existingActions }),
   });
 
   const json = (await response.json()) as unknown;
@@ -80,4 +84,3 @@ export async function planAssistantActions(args: { text: string }): Promise<{ su
 
   return { success: true, data: planParsed.data };
 }
-

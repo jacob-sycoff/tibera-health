@@ -95,6 +95,18 @@ const RequestSchema = z
     text: z.string().min(1),
     nowIso: z.string().datetime().optional(),
     today: DateSchema.optional(),
+    history: z
+      .array(
+        z
+          .object({
+            role: z.enum(["user", "assistant"]),
+            text: z.string().min(1),
+          })
+          .strict()
+      )
+      .max(12)
+      .optional(),
+    existingActions: z.array(ActionSchema).max(12).optional(),
   })
   .strict();
 
@@ -118,6 +130,14 @@ function shouldUpgradeToStrongModel(plan: AssistantPlan): boolean {
 const SYSTEM_PROMPT = `You are an assistant for a health tracking app.
 
 You convert the user's free-form text into a SHORT list of actions the app can apply.
+
+You may also be given:
+- conversation history
+- existing suggested actions (not yet applied)
+
+If existing actions are provided, update them instead of creating duplicates.
+Example: if the user says "they were cooked in 1 tbsp olive oil", and there is an existing meal action,
+add an item like "olive oil" (usdaQuery "olive oil") and add a note about the tablespoon.
 
 Return ONLY valid JSON matching this exact schema:
 {
@@ -173,10 +193,12 @@ data:
 }
 
 Rules:
-- Only include actions explicitly implied by the user. If unsure, omit the action.
+- Include actions implied by the user. If unsure, ask for clarification in "message" and keep actions minimal.
 - Prefer 2-6 actions total.
 - For meal items: create USDA-friendly queries (e.g. "broccoli steamed", "chicken breast grilled", "white rice cooked").
 - If the user mentions eating only part of something, prefer gramsConsumed if possible; otherwise include servings (e.g. 0.5).
+- If the user mentions common measures, convert when safe:
+  - 1 tbsp olive oil ≈ 13.5g (set gramsConsumed and note the assumption)
 - If no severity is given for a symptom, set severity to 5 (moderate).
 - If dosage/unit is missing for a supplement, use dosage 1 and unit "serving".
 - If date/time is not specified, use null (the client will default to 'now' or 'today').
@@ -187,11 +209,28 @@ async function tryOpenAiPlan(args: {
   text: string;
   nowIso?: string;
   today?: string;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
+  existingActions?: AssistantPlan["actions"];
 }): Promise<AssistantPlan | null> {
   if (!process.env.OPENAI_API_KEY) return null;
 
   const nowBlock = args.nowIso ? `\nCurrent time (ISO): ${args.nowIso}` : "";
   const todayBlock = args.today ? `\nToday's date: ${args.today}` : "";
+  const historyBlock =
+    args.history && args.history.length > 0
+      ? `\n\nConversation so far (most recent last):\n${args.history
+          .slice(-8)
+          .map((m) => `${m.role.toUpperCase()}: ${m.text}`)
+          .join("\n")}`
+      : "";
+  const existingActionsBlock =
+    args.existingActions && args.existingActions.length > 0
+      ? `\n\nExisting suggested actions (update these rather than duplicating):\n${JSON.stringify(
+          { actions: args.existingActions },
+          null,
+          2
+        )}`
+      : "";
 
   const userPrompt = `User said:\n${args.text}${todayBlock}${nowBlock}\n\nReturn JSON only.`;
 
@@ -207,7 +246,7 @@ async function tryOpenAiPlan(args: {
       max_tokens: 900,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
+        { role: "user", content: `${userPrompt}${historyBlock}${existingActionsBlock}` },
       ],
     }),
   });
@@ -244,18 +283,20 @@ export async function POST(request: NextRequest) {
     }
 
     const { text, nowIso, today } = parsedBody.data;
+    const history = parsedBody.data.history;
+    const existingActions = parsedBody.data.existingActions;
 
     const models = {
       cheap: process.env.OPENAI_ASSISTANT_MODEL_CHEAP || "gpt-4o-mini",
       strong: process.env.OPENAI_ASSISTANT_MODEL_STRONG || "gpt-4o",
     };
 
-    let planned = await tryOpenAiPlan({ model: models.cheap, text, nowIso, today });
+    let planned = await tryOpenAiPlan({ model: models.cheap, text, nowIso, today, history, existingActions });
     if (planned && shouldUpgradeToStrongModel(planned)) {
-      const upgraded = await tryOpenAiPlan({ model: models.strong, text, nowIso, today });
+      const upgraded = await tryOpenAiPlan({ model: models.strong, text, nowIso, today, history, existingActions });
       if (upgraded) planned = upgraded;
     } else if (!planned) {
-      planned = await tryOpenAiPlan({ model: models.strong, text, nowIso, today });
+      planned = await tryOpenAiPlan({ model: models.strong, text, nowIso, today, history, existingActions });
     }
 
     if (!planned) {
@@ -271,4 +312,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Failed to plan actions. Please try again." }, { status: 500 });
   }
 }
-

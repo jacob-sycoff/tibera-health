@@ -225,6 +225,59 @@ function planToUiActions(plan: AssistantPlan): UiAction[] {
   });
 }
 
+function uiActionsToPlanActions(actions: UiAction[]): AssistantPlan["actions"] {
+  return actions
+    .filter((a) => a.status !== "applied")
+    .map((a) => {
+      if (a.type === "log_meal") {
+        return {
+          type: "log_meal" as const,
+          title: a.title,
+          confidence: a.confidence,
+          data: {
+            date: a.data.date ?? null,
+            mealType: a.data.mealType ?? null,
+            items: a.data.items.map((it) => ({
+              label: it.label,
+              usdaQuery: it.usdaQuery,
+              gramsConsumed: it.gramsConsumed ?? null,
+              servings: it.servings ?? null,
+              notes: undefined,
+            })),
+            notes: a.data.notes,
+          },
+        };
+      }
+      if (a.type === "log_symptom") {
+        return {
+          type: "log_symptom" as const,
+          title: a.title,
+          confidence: a.confidence,
+          data: {
+            symptom: a.data.symptom,
+            severity: a.data.severity ?? null,
+            date: a.data.date ?? null,
+            time: a.data.time ?? null,
+            notes: a.data.notes,
+          },
+        };
+      }
+      return {
+        type: "log_supplement" as const,
+        title: a.title,
+        confidence: a.confidence,
+        data: {
+          supplement: a.data.supplement,
+          dosage: a.data.dosage ?? null,
+          unit: a.data.unit ?? null,
+          date: a.data.date ?? null,
+          time: a.data.time ?? null,
+          notes: a.data.notes,
+        },
+      };
+    });
+}
+
 export function AssistantLauncher() {
   const toast = useToast();
 
@@ -353,9 +406,11 @@ export function AssistantLauncher() {
     setMessages((prev) => [...prev, { role: "user", text }]);
     setInput("");
     setPlanMessage(null);
-    setActions([]);
 
-    const result = await planAssistantActions({ text });
+    const history = [...messages, { role: "user" as const, text }].slice(-8);
+    const existingActions = uiActionsToPlanActions(actionsRef.current);
+
+    const result = await planAssistantActions({ text, history, existingActions });
     if (!result.success) {
       toast.error(result.error);
       setMessages((prev) => [...prev, { role: "assistant", text: "I couldn’t turn that into actions. Try adding a bit more detail." }]);
@@ -366,14 +421,21 @@ export function AssistantLauncher() {
     setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
     setPlanMessage(result.data.message);
 
+    const applied = actionsRef.current.filter((a) => a.status === "applied");
     const nextActions = planToUiActions(result.data);
-    setActions(nextActions);
-    actionsRef.current = nextActions;
+    if (nextActions.length > 0) {
+      const merged = [...applied, ...nextActions];
+      setActions(merged);
+      actionsRef.current = merged;
+    } else {
+      // Keep any existing un-applied actions if the assistant couldn't produce new ones.
+      setActions(actionsRef.current);
+    }
     setIsPlanning(false);
 
     // Background resolve USDA matches for meal items
     void resolveAllMeals(nextActions);
-  }, [input, isPlanning, toast, resolveAllMeals]);
+  }, [actionsRef, input, isPlanning, messages, toast, resolveAllMeals]);
 
   const startListening = useCallback(() => {
     const SpeechRecognition =
