@@ -341,6 +341,137 @@ function applyMedicationHeuristics(inputText: string, planned: AssistantPlan): A
   return { ...planned, actions: actions.slice(0, 12) };
 }
 
+function extractCount(text: string, term: string): number | null {
+  const t = text.toLowerCase();
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m1 = t.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s+(?:x\\s*)?(?:${escaped})\\b`, "i"));
+  if (m1) return Number(m1[1]);
+
+  const m2 = t.match(new RegExp(`\\b${escaped}\\b\\s*(\\d+(?:\\.\\d+)?)`, "i"));
+  if (m2) return Number(m2[1]);
+
+  const m3 = t.match(new RegExp(`\\b(one|two|three|four|five|six)\\s+(?:${escaped})\\b`, "i"));
+  if (m3) {
+    const map: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+    return map[m3[1].toLowerCase()] ?? null;
+  }
+  return null;
+}
+
+function applyPortionHeuristics(inputText: string, planned: AssistantPlan): AssistantPlan {
+  const text = inputText.toLowerCase();
+  const actions = planned.actions.map((a) => ({ ...a }));
+
+  const mealIndex = actions.findIndex((a) => a.type === "log_meal");
+  if (mealIndex === -1) return planned;
+
+  const meal = actions[mealIndex] as Extract<AssistantPlan["actions"][number], { type: "log_meal" }>;
+
+  // Only set grams when the user implied a COUNT (eggs/slices/pieces) and the model didn't provide grams.
+  const rules: Array<{
+    key: string;
+    gramsEach: number;
+    terms: string[];
+    note: (count: number, grams: number) => string;
+  }> = [
+    {
+      key: "egg",
+      gramsEach: 50,
+      terms: ["egg", "eggs"],
+      note: (count, grams) => `Assumed ${count} egg(s) ≈ ${grams}g edible portion.`,
+    },
+    {
+      key: "bacon",
+      gramsEach: 15,
+      terms: ["bacon", "beef bacon", "turkey bacon"],
+      note: (count, grams) => `Assumed ${count} slice/piece bacon ≈ ${grams}g.`,
+    },
+    {
+      key: "waffle",
+      gramsEach: 35,
+      terms: ["waffle", "waffles"],
+      note: (count, grams) => `Assumed ${count} waffle(s) ≈ ${grams}g.`,
+    },
+    {
+      key: "chicken breast",
+      gramsEach: 120,
+      terms: ["chicken breast", "breast"],
+      note: (count, grams) => `Assumed ${count} chicken breast portion(s) ≈ ${grams}g.`,
+    },
+    {
+      key: "chicken thigh",
+      gramsEach: 100,
+      terms: ["chicken thigh", "thigh"],
+      note: (count, grams) => `Assumed ${count} chicken thigh portion(s) ≈ ${grams}g.`,
+    },
+  ];
+
+  const nextItems = meal.data.items.map((item) => {
+    if (item.gramsConsumed != null) return item;
+
+    // If the model put a small integer in "servings", it might be a count (2 eggs, 2 slices, etc).
+    const servingsAsCount =
+      typeof item.servings === "number" && Number.isFinite(item.servings) && item.servings > 0 && item.servings <= 6
+        ? Math.round(item.servings)
+        : null;
+
+    const normalized = normalizeKey(`${item.label} ${item.usdaQuery}`);
+
+    for (const rule of rules) {
+      const mentioned = rule.terms.some((t) => normalized.includes(normalizeKey(t))) || normalized.includes(rule.key);
+      if (!mentioned) continue;
+
+      // Try to read explicit count from the user's text; otherwise fall back to servings-as-count.
+      const countFromText =
+        rule.terms
+          .map((t) => extractCount(text, t))
+          .find((v) => typeof v === "number" && Number.isFinite(v) && v > 0) ?? null;
+      const count = (countFromText != null ? countFromText : servingsAsCount) as number | null;
+      if (count == null || !Number.isFinite(count) || count <= 0) continue;
+
+      const grams = Math.round(count * rule.gramsEach * 10) / 10;
+      const note = rule.note(count, grams);
+
+      return {
+        ...item,
+        gramsConsumed: grams,
+        servings: null, // let the client compute servings from grams once USDA match is selected
+        notes: item.notes ? `${item.notes}\n${note}` : note,
+      };
+    }
+
+    return item;
+  });
+
+  // Deduplicate by query/label (some models repeat items across turns).
+  const deduped = new Map<string, typeof nextItems[number]>();
+  for (const item of nextItems) {
+    const key = normalizeKey(item.usdaQuery || item.label);
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, item);
+      continue;
+    }
+    const merged = {
+      ...existing,
+      gramsConsumed:
+        existing.gramsConsumed != null && item.gramsConsumed != null
+          ? existing.gramsConsumed + item.gramsConsumed
+          : existing.gramsConsumed ?? item.gramsConsumed ?? null,
+      servings:
+        existing.servings != null && item.servings != null
+          ? existing.servings + item.servings
+          : existing.servings ?? item.servings ?? null,
+      notes: [existing.notes, item.notes].filter(Boolean).join("\n") || undefined,
+    };
+    deduped.set(key, merged);
+  }
+
+  meal.data.items = Array.from(deduped.values());
+  actions[mealIndex] = meal;
+  return { ...planned, actions: actions.slice(0, 12) };
+}
+
 const SYSTEM_PROMPT = `You are an assistant for a health tracking app.
 
 You convert the user's free-form text into a SHORT list of actions the app can apply.
@@ -522,7 +653,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const enriched = applyMedicationHeuristics(text, applyCookingHeuristics(text, planned));
+    const enriched = applyPortionHeuristics(text, applyMedicationHeuristics(text, applyCookingHeuristics(text, planned)));
     return NextResponse.json({ success: true, data: enriched });
   } catch (error) {
     console.error("Assistant plan error:", error);

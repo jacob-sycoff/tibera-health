@@ -174,6 +174,37 @@ function normalizeName(input: string): string {
     .replace(/\s+/g, " ");
 }
 
+function dedupeMealItems(items: UiMealItem[]): UiMealItem[] {
+  const byKey = new Map<string, UiMealItem>();
+  for (const item of items) {
+    const key = normalizeName(item.usdaQuery || item.label);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      continue;
+    }
+    const merged: UiMealItem = {
+      ...existing,
+      label: existing.label || item.label,
+      usdaQuery: existing.usdaQuery || item.usdaQuery,
+      gramsConsumed:
+        existing.gramsConsumed != null && item.gramsConsumed != null
+          ? existing.gramsConsumed + item.gramsConsumed
+          : existing.gramsConsumed ?? item.gramsConsumed ?? null,
+      servings: roundServings((existing.servings || 0) + (item.servings || 0)),
+      candidates: existing.candidates.length ? existing.candidates : item.candidates,
+      selectedCandidate: existing.selectedCandidate ?? item.selectedCandidate,
+      matchedFood: existing.matchedFood ?? item.matchedFood,
+      isResolving: existing.isResolving || item.isResolving,
+      resolveError: existing.resolveError || item.resolveError,
+      expanded: existing.expanded || item.expanded,
+      amountUnit: existing.amountUnit || item.amountUnit,
+    };
+    byKey.set(key, merged);
+  }
+  return Array.from(byKey.values());
+}
+
 function planToUiActions(plan: AssistantPlan): UiAction[] {
   const today = new Date().toISOString().slice(0, 10);
   return plan.actions.map((action) => {
@@ -201,7 +232,8 @@ function planToUiActions(plan: AssistantPlan): UiAction[] {
         isResolving: false,
         expanded: false,
       }));
-      return { ...base, type: "log_meal", data: { date, mealType, items, notes: action.data.notes } };
+      const deduped = dedupeMealItems(items);
+      return { ...base, type: "log_meal", data: { date, mealType, items: deduped, notes: action.data.notes } };
     }
 
     if (action.type === "log_symptom") {
