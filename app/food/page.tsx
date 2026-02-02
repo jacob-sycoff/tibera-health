@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useMealLogsByDate, useDeleteMealItem, useUpdateMealItem, type MealLog } from "@/lib/hooks/use-meals";
 import { useEffectiveGoals } from "@/lib/hooks";
-import { getFoodDetails, searchFoods } from "@/lib/api/usda";
+import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
 import type { FoodNutrient } from "@/types";
 import type { MealType } from "@/types";
 
@@ -106,7 +106,7 @@ export default function FoodTrackerPage() {
     if (!name.trim()) return;
     setFixingItemId(itemId);
     try {
-      const results = await searchFoods(name, 5);
+      const results = await smartSearchFoods(name, 8);
       const best = results[0];
       if (!best) return;
       const food = await getFoodDetails(best.fdcId);

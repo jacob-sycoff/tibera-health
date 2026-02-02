@@ -106,12 +106,40 @@ export async function searchFoods(
   }
 }
 
+// Smarter search that improves recall/precision for common phrasing like
+// "green beans cooked" (USDA often uses "Beans, snap, green, cooked, boiled...").
+export async function smartSearchFoods(
+  query: string,
+  pageSize: number = 25
+): Promise<FoodSearchResult[]> {
+  const normalized = query.trim();
+  if (normalized.length < 2) return [];
+
+  const variants = buildQueryVariants(normalized);
+  const perVariant = Math.max(5, Math.ceil(pageSize / variants.length));
+
+  const buckets = await Promise.all(variants.map((q) => searchFoods(q, perVariant).catch(() => [])));
+
+  const byId = new Map<string, FoodSearchResult>();
+  for (const list of buckets) {
+    for (const item of list) {
+      if (!byId.has(item.fdcId)) byId.set(item.fdcId, item);
+    }
+  }
+
+  const merged = Array.from(byId.values());
+  merged.sort((a, b) => scoreCandidate(normalized, b) - scoreCandidate(normalized, a));
+  return merged.slice(0, pageSize);
+}
+
 export async function getFoodDetails(fdcId: string): Promise<Food | null> {
   // Check cache
   const cached = foodCache.get(fdcId);
   if (cached && isCacheValid(cached.timestamp)) {
     return cached.data;
   }
+
+  if (!/^\d+$/.test(fdcId)) return null;
 
   const apiKey = getApiKey();
   const url = `${USDA_API_BASE}/food/${fdcId}?api_key=${apiKey}`;
@@ -120,6 +148,7 @@ export async function getFoodDetails(fdcId: string): Promise<Food | null> {
     const response = await fetch(url);
 
     if (!response.ok) {
+      if (response.status === 404) return null;
       throw new Error(`USDA API error: ${response.status}`);
     }
 
@@ -158,7 +187,9 @@ export async function getFoodDetails(fdcId: string): Promise<Food | null> {
 
     return food;
   } catch (error) {
-    console.error("USDA food details error:", error);
+    // Avoid spamming the console for common transient failures.
+    if (error instanceof Error && /USDA API error: 404/.test(error.message)) return null;
+    console.warn("USDA food details error:", error);
     return null;
   }
 }
@@ -214,6 +245,86 @@ function normalizeServingUnit(unit: string): string {
   if (normalized === "g" || normalized === "gram" || normalized === "grams" || normalized === "grm") return "g";
   if (normalized === "ml" || normalized === "mlt" || normalized === "milliliter" || normalized === "milliliters") return "ml";
   return unit;
+}
+
+function buildQueryVariants(query: string): string[] {
+  const q = query.toLowerCase();
+  const variants = new Set<string>();
+  variants.add(query);
+
+  // Normalize common cooking terms to increase recall.
+  const tokensToStrip = [
+    "cooked",
+    "raw",
+    "steamed",
+    "boiled",
+    "grilled",
+    "roasted",
+    "baked",
+    "fried",
+    "sauteed",
+    "sautéed",
+  ];
+
+  const stripped = tokensToStrip.reduce((acc, t) => acc.replace(new RegExp(`\\b${escapeRegExp(t)}\\b`, "gi"), " "), query);
+  const base = stripped.replace(/\s+/g, " ").trim();
+  if (base && base !== query) variants.add(base);
+
+  // If user specified a cooking method, add a generic cooked variant too.
+  if (/\b(steamed|boiled|grilled|roasted|baked|fried|sauteed|sautéed)\b/i.test(query) && base) {
+    variants.add(`${base} cooked`);
+  }
+  if (/\braw\b/i.test(query) && base) {
+    variants.add(`${base} raw`);
+  }
+
+  return Array.from(variants).slice(0, 3);
+}
+
+function scoreCandidate(query: string, candidate: FoodSearchResult): number {
+  const desc = candidate.description.toLowerCase();
+  const dt = (candidate.dataType || "").toLowerCase();
+  const baseScore = typeof candidate.score === "number" ? candidate.score : 0;
+
+  // Prefer higher-quality reference data.
+  const dataTypeBonus =
+    dt.includes("foundation") ? 120 :
+    dt.includes("sr legacy") || dt.includes("sr") ? 90 :
+    dt.includes("survey") ? 40 :
+    dt.includes("branded") ? 10 :
+    0;
+
+  const cookedQuery = /\b(cooked|steamed|boiled|grilled|roasted|baked|fried|sauteed|sautéed)\b/i.test(query);
+  const rawQuery = /\braw\b/i.test(query);
+
+  const hasRaw = /\braw\b/i.test(desc);
+  const hasCooked = /\b(cooked|steamed|boiled|grilled|roasted|baked|fried|sauteed|sautéed)\b/i.test(desc);
+
+  let methodScore = 0;
+  if (cookedQuery) {
+    if (hasCooked) methodScore += 120;
+    if (hasRaw) methodScore -= 180;
+  } else if (rawQuery) {
+    if (hasRaw) methodScore += 120;
+    if (hasCooked) methodScore -= 100;
+  } else {
+    // If user didn't specify, slightly prefer cooked entries for vegetables (often logged cooked).
+    if (hasCooked && !hasRaw) methodScore += 10;
+  }
+
+  // Token overlap (very simple, but helps e.g. "snap beans" vs "green beans").
+  const qTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  let overlap = 0;
+  for (const t of qTokens) {
+    if (t.length <= 2) continue;
+    if (desc.includes(t)) overlap += 8;
+  }
+
+  return baseScore + dataTypeBonus + methodScore + overlap;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractNutrients(

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { analyzeMealPhoto, type MealPhotoAnalysis, type MealPhotoItem } from "@/lib/api/meal-photo-logger";
-import { getFoodDetails, searchFoods } from "@/lib/api/usda";
+import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
 import { useCreateMealLog } from "@/lib/hooks/use-meals";
 import { FoodSearch } from "@/components/food/food-search";
 import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
@@ -87,6 +87,17 @@ function pickBestCandidate(candidates: FoodSearchResult[]): FoodSearchResult | n
   return sorted[0] || null;
 }
 
+async function resolveFirstValidFood(candidates: FoodSearchResult[]): Promise<{
+  selectedCandidate: FoodSearchResult | null;
+  food: Food | null;
+}> {
+  for (const candidate of candidates) {
+    const food = await getFoodDetails(candidate.fdcId);
+    if (food) return { selectedCandidate: candidate, food };
+  }
+  return { selectedCandidate: null, food: null };
+}
+
 export default function LogFoodFromPhotoPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -149,9 +160,13 @@ export default function LogFoodFromPhotoPage() {
         analysisItems.map(async (analysisItem, idx) => {
           try {
             const query = analysisItem.usdaQuery || analysisItem.name;
-            const candidates = await searchFoods(query, 8);
-            const selectedCandidate = pickBestCandidate(candidates);
-            const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
+            const candidates = await smartSearchFoods(query, 10);
+            const ranked = pickBestCandidate(candidates);
+            const ordered = ranked
+              ? [ranked, ...candidates.filter((c) => c.fdcId !== ranked.fdcId)]
+              : candidates;
+
+            const { selectedCandidate, food } = await resolveFirstValidFood(ordered);
 
             const gramsConsumed = deriveConsumedGrams(analysisItem);
             const servingsFromAuto = servingsFromGrams(food, gramsConsumed);
@@ -164,7 +179,7 @@ export default function LogFoodFromPhotoPage() {
               usdaQuery: query,
               gramsConsumed,
               matchedFood: food,
-              candidates,
+              candidates: ordered,
               selectedCandidate,
               servings: roundServings(servings),
             } satisfies ResolvedItem;
@@ -202,9 +217,13 @@ export default function LogFoodFromPhotoPage() {
 
     setIsResolving(true);
     try {
-      const candidates = await searchFoods(query, 10);
-      const selectedCandidate = pickBestCandidate(candidates);
-      const food = selectedCandidate ? await getFoodDetails(selectedCandidate.fdcId) : null;
+      const candidates = await smartSearchFoods(query, 12);
+      const ranked = pickBestCandidate(candidates);
+      const ordered = ranked
+        ? [ranked, ...candidates.filter((c) => c.fdcId !== ranked.fdcId)]
+        : candidates;
+
+      const { selectedCandidate, food } = await resolveFirstValidFood(ordered);
       const nextServings = servingsFromGrams(food, item.gramsConsumed);
 
       setResolvedItems((prev) =>
@@ -212,7 +231,7 @@ export default function LogFoodFromPhotoPage() {
           p.key === key
             ? {
                 ...p,
-                candidates,
+                candidates: ordered,
                 selectedCandidate,
                 matchedFood: food,
                 servings: roundServings(nextServings ?? p.servings ?? 1),
@@ -232,6 +251,10 @@ export default function LogFoodFromPhotoPage() {
     setIsResolving(true);
     try {
       const food = await getFoodDetails(candidate.fdcId);
+      if (!food) {
+        toast.error("Could not load nutrition for that match. Try another.");
+        return;
+      }
       setResolvedItems((prev) =>
         prev.map((p) => {
           if (p.key !== key) return p;
