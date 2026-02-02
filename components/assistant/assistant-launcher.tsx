@@ -340,6 +340,9 @@ export function AssistantLauncher() {
 
   const [isListening, setIsListening] = useState(false);
   const speechRef = useRef<any>(null);
+  const listeningDesiredRef = useRef(false);
+  const dictationFinalRef = useRef<string>("");
+  const restartBackoffMsRef = useRef<number>(150);
 
   const hasAnySelected = useMemo(() => actions.some((a) => a.selected), [actions]);
   const hasAnyActions = actions.length > 0;
@@ -510,40 +513,82 @@ export function AssistantLauncher() {
       return;
     }
 
-    if (isListening) return;
+    if (listeningDesiredRef.current) return;
+    listeningDesiredRef.current = true;
     setIsListening(true);
+    restartBackoffMsRef.current = 150;
+    dictationFinalRef.current = input.trim() ? `${input.trim()} ` : "";
 
     const recognition = new SpeechRecognition();
     speechRef.current = recognition;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    let finalText = "";
     recognition.onresult = (event: any) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += transcript;
+        if (event.results[i].isFinal) dictationFinalRef.current += transcript;
         else interim += transcript;
       }
-      setInput((prev) => (finalText + interim).trim() || prev);
+      const merged = `${dictationFinalRef.current}${interim}`.trim();
+      if (merged) setInput(merged);
     };
 
-    recognition.onerror = () => {
-      setIsListening(false);
-      speechRef.current = null;
+    recognition.onerror = (event: any) => {
+      const err = (event?.error as string | undefined) || "unknown";
+      if (err === "not-allowed" || err === "service-not-allowed" || err === "audio-capture") {
+        listeningDesiredRef.current = false;
+        setIsListening(false);
+        speechRef.current = null;
+        toast.error("Mic unavailable for dictation");
+      }
+      // For transient errors, allow onend to auto-restart if still desired.
     };
 
     recognition.onend = () => {
-      setIsListening(false);
       speechRef.current = null;
+      if (!listeningDesiredRef.current) {
+        setIsListening(false);
+        return;
+      }
+
+      // Web Speech often ends unexpectedly; auto-restart while the user wants to keep listening.
+      const backoff = restartBackoffMsRef.current;
+      restartBackoffMsRef.current = Math.min(1500, Math.round(backoff * 1.6));
+
+      window.setTimeout(() => {
+        if (!listeningDesiredRef.current) return;
+        try {
+          const r = new SpeechRecognition();
+          speechRef.current = r;
+          r.continuous = true;
+          r.interimResults = true;
+          r.lang = "en-US";
+          r.onresult = recognition.onresult;
+          r.onerror = recognition.onerror;
+          r.onend = recognition.onend;
+          r.start();
+        } catch {
+          listeningDesiredRef.current = false;
+          setIsListening(false);
+          speechRef.current = null;
+        }
+      }, backoff);
     };
 
-    recognition.start();
-  }, [isListening, toast]);
+    try {
+      recognition.start();
+    } catch {
+      listeningDesiredRef.current = false;
+      setIsListening(false);
+      speechRef.current = null;
+    }
+  }, [input, toast]);
 
   const stopListening = useCallback(() => {
+    listeningDesiredRef.current = false;
     if (speechRef.current) {
       try {
         speechRef.current.stop();
