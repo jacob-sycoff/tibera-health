@@ -65,11 +65,21 @@ export async function POST(request: Request) {
 
     // Send verification email (fire-and-forget)
     const verifyLink = `${siteUrl}/verify-email/${token}`;
-    sendEmail({
+    const emailResult = await sendEmail({
       to: email,
       subject: 'Verify your email - Tibera Health',
       html: buildVerificationEmail(verifyLink),
-    }).catch((err: unknown) => console.error('[register] email error:', err));
+    });
+
+    if (!emailResult.success) {
+      console.error('[register] verification email send failed:', emailResult.error);
+      await admin.from('email_verification_tokens').delete().eq('token', token);
+      await admin.auth.admin.deleteUser(userId);
+      return NextResponse.json(
+        { error: emailResult.error || 'Failed to send verification email' },
+        { status: 500 }
+      );
+    }
 
     // Sign the user in server-side
     try {
