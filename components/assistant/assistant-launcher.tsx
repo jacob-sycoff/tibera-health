@@ -365,6 +365,7 @@ export function AssistantLauncher() {
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [remoteAudioStream, setRemoteAudioStream] = useState<MediaStream | null>(null);
   const [needsAudioTap, setNeedsAudioTap] = useState(false);
+  const audioTapNotifiedRef = useRef(false);
   const rtcPeerRef = useRef<RTCPeerConnection | null>(null);
   const rtcDataChannelRef = useRef<RTCDataChannel | null>(null);
   const rtcLocalStreamRef = useRef<MediaStream | null>(null);
@@ -417,11 +418,23 @@ export function AssistantLauncher() {
       audioEl.srcObject = remoteAudioStream;
       audioEl.muted = false;
       audioEl.volume = 1.0;
-      void audioEl.play().then(() => setNeedsAudioTap(false)).catch(() => setNeedsAudioTap(true));
+      void audioEl
+        .play()
+        .then(() => {
+          audioTapNotifiedRef.current = false;
+          setNeedsAudioTap(false);
+        })
+        .catch(() => {
+          setNeedsAudioTap(true);
+          if (!audioTapNotifiedRef.current) {
+            audioTapNotifiedRef.current = true;
+            toast.error("Audio is blocked by the browser. Click “Enable audio”.");
+          }
+        });
     } catch {
       setNeedsAudioTap(true);
     }
-  }, [remoteAudioStream]);
+  }, [remoteAudioStream, toast]);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current != null) {
@@ -472,6 +485,7 @@ export function AssistantLauncher() {
     realtimeTranscribeTextRef.current = "";
     setRemoteAudioStream(null);
     setNeedsAudioTap(false);
+    audioTapNotifiedRef.current = false;
     if (realtimeTranscribeTimerRef.current != null) {
       try {
         window.clearTimeout(realtimeTranscribeTimerRef.current);
@@ -1446,10 +1460,16 @@ export function AssistantLauncher() {
         </ModalHeader>
 
         <ModalContent className="space-y-4">
-          <audio ref={rtcRemoteAudioRef} autoPlay playsInline className="hidden" />
+          <audio
+            ref={rtcRemoteAudioRef}
+            autoPlay
+            playsInline
+            // Avoid `display: none` which can prevent playback on some browsers.
+            className="absolute w-0 h-0 opacity-0 pointer-events-none"
+          />
 
           <div className="rounded-[var(--radius-lg)] border border-black/10 dark:border-white/10 bg-white/60 dark:bg-slate-950/30 p-4">
-            <div className="space-y-3 max-h-[34vh] overflow-auto pr-1">
+            <div className="space-y-3 pr-1">
               {messages.length === 0 ? (
                 <div className="text-sm text-slate-600 dark:text-slate-300">
                   Example: “I ate lunch: chicken breast and a cup of broccoli. I had a headache at 2pm and took magnesium.”
