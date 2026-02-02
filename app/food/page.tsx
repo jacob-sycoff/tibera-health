@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, Camera, Sparkles, UtensilsCrossed } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, Camera, Sparkles, ChevronDown, ChevronUp, UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,13 +80,14 @@ function NutrientContributors({
   onClear: () => void;
 }) {
   return (
-    <div className="mt-2 rounded-lg border border-slate-100 dark:border-slate-800 bg-white/60 dark:bg-slate-950/40 p-3">
+    <div className="mt-2 ml-4 pl-4 border-l-2 border-slate-200/80 dark:border-slate-800">
+      <div className="rounded-lg border border-slate-100 dark:border-slate-800 bg-white/60 dark:bg-slate-950/40 p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
           Contributors
         </div>
-        <Button variant="ghost" size="sm" onClick={onClear}>
-          Clear
+        <Button variant="ghost" size="icon-sm" onClick={onClear} aria-label="Collapse contributors" title="Collapse">
+          <ChevronUp className="w-4 h-4" />
         </Button>
       </div>
 
@@ -144,6 +145,7 @@ function NutrientContributors({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -172,12 +174,15 @@ function SelectableNutrient({
           }
         }}
         className={cn(
-          "rounded-lg px-2 py-2 cursor-pointer transition-colors",
+          "relative rounded-lg px-2 py-2 cursor-pointer transition-colors",
           "hover:bg-slate-50 dark:hover:bg-slate-900/40",
           selected && "bg-slate-50 dark:bg-slate-900/40 ring-1 ring-black/5 dark:ring-white/10"
         )}
       >
         {children}
+        <span className="absolute top-3 right-2 text-slate-400">
+          {selected ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </span>
       </div>
       {selected ? expanded : null}
     </div>
