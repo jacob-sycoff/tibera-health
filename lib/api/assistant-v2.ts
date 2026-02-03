@@ -57,6 +57,7 @@ const AssistantV2ResponseSchema = z.object({
     intent: z.enum(["log", "clarify", "chat"]),
     apply: z.enum(["auto", "confirm", "none"]),
     confidence: z.number(),
+    action_handling: z.enum(["keep", "replace", "clear"]),
   }),
 });
 
@@ -116,4 +117,3 @@ export async function conversationV2(args: {
 
   return { success: true, data: outParsed.data, meta: parsed.data.meta };
 }
-

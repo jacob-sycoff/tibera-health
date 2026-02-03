@@ -1388,6 +1388,64 @@ export function AssistantLauncher() {
       const nextActions = planToUiActions(result.data);
       const applied = actionsRef.current.filter((a) => a.status === "applied");
 
+      if (isV2 && v2Data) {
+        const handling = v2Data.decision.action_handling;
+
+        if (handling === "keep") {
+          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
+          setPlanMessage(v2Data.message);
+          setActions(actionsRef.current);
+          setIsPlanning(false);
+          if (handsFree) {
+            void (async () => {
+              await speak(v2Data.message);
+              listeningPurposeRef.current = "dictation";
+              startListeningRef.current();
+            })();
+          } else {
+            setVoicePhase("idle");
+          }
+          return;
+        }
+
+        if (handling === "clear") {
+          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
+          setPlanMessage(v2Data.message);
+          setActions([...applied]);
+          actionsRef.current = [...applied];
+          setIsPlanning(false);
+          if (handsFree) {
+            void (async () => {
+              await speak(v2Data.message);
+              listeningPurposeRef.current = "dictation";
+              startListeningRef.current();
+            })();
+          } else {
+            setVoicePhase("idle");
+          }
+          return;
+        }
+
+        // "replace": if the model returned no actions, treat it as "no suggestions right now".
+        if (nextActions.length === 0) {
+          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
+          setPlanMessage(v2Data.message);
+          setActions([...applied]);
+          actionsRef.current = [...applied];
+          setIsPlanning(false);
+          if (handsFree) {
+            void (async () => {
+              await speak(v2Data.message);
+              listeningPurposeRef.current = "dictation";
+              startListeningRef.current();
+            })();
+          } else {
+            setVoicePhase("idle");
+          }
+          return;
+        }
+      }
+
       if (nextActions.length > 0) {
         setMessages((prev) => [...prev, { role: "assistant", text: result.data.message }]);
         setPlanMessage(result.data.message);

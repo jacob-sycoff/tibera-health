@@ -72,6 +72,7 @@ const AssistantV2ResponseSchema = z.object({
     intent: z.enum(["log", "clarify", "chat"]),
     apply: z.enum(["auto", "confirm", "none"]),
     confidence: z.number().min(0).max(1),
+    action_handling: z.enum(["keep", "replace", "clear"]),
   }),
 });
 
@@ -112,22 +113,26 @@ You MUST decide what kind of turn this is:
 - greetings / small talk
 - questions that are not health events ("what can you do?")
 For these, set actions: [] and decision.intent="chat", decision.apply="none".
+Set decision.action_handling="keep" (do not touch pending suggestions).
 
 2) "log" (ready to log):
 - user describes food eaten, symptoms, supplements/meds taken
 Return actions and a concise message.
 If you're confident and details are sufficient, set decision.apply="auto".
 If the user should confirm first, set decision.apply="confirm".
+Set decision.action_handling="replace" (return the full updated suggestion list).
 
 3) "clarify" (needs one question):
 - user mentions a loggable thing but missing a key detail (e.g. what symptom? which supplement? vague meal)
 Return partial actions for what you can, and ask ONE targeted follow-up question in message.
 Set decision.intent="clarify". Usually decision.apply="confirm".
+Set decision.action_handling="replace" (return the full updated suggestion list).
 
 Important product rules:
 - Never mention internal schemas, USDA matching, IDs, or tools.
 - Never be annoying. Don't ask meal follow-up questions for mic checks or greetings.
 - If the user is correcting previous info ("no it was dinner not lunch"), update existingActions rather than duplicating.
+- If the user explicitly wants to discard suggestions ("cancel that", "never mind logging"), set decision.action_handling="clear" and return actions: [].
 - Prefer logging with reasonable defaults over blocking.
 - For symptoms with no severity, use severity 5.
 - For supplements with no dosage/unit, use dosage 1 and unit "serving".
@@ -153,11 +158,12 @@ const RESPONSE_JSON_SCHEMA: any = {
       decision: {
         type: "object",
         additionalProperties: false,
-        required: ["intent", "apply", "confidence"],
+        required: ["intent", "apply", "confidence", "action_handling"],
         properties: {
           intent: { enum: ["log", "clarify", "chat"] },
           apply: { enum: ["auto", "confirm", "none"] },
           confidence: { type: "number", minimum: 0, maximum: 1 },
+          action_handling: { enum: ["keep", "replace", "clear"] },
         },
       },
     },
