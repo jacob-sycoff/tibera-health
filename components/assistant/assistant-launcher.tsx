@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils/cn";
 import { planAssistantActions, type AssistantPlan } from "@/lib/api/assistant";
+import { conversationV2, type AssistantV2Response } from "@/lib/api/assistant-v2";
 import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
 import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { FoodSearch } from "@/components/food/food-search";
@@ -324,7 +325,7 @@ export function AssistantLauncher() {
   const supplementsList = useSupplementsList();
 
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"chat" | "conversation">("conversation");
+  const [mode, setMode] = useState<"chat" | "conversation" | "conversation_v2">("conversation");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -335,7 +336,7 @@ export function AssistantLauncher() {
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const voicePhaseRef = useRef<VoicePhase>("idle");
   const [speechEnabled, setSpeechEnabled] = useState(true);
-  const handsFree = mode === "conversation";
+  const handsFree = mode !== "chat";
 
   const [isListening, setIsListening] = useState(false);
   const speechRef = useRef<any>(null);
@@ -492,7 +493,7 @@ export function AssistantLauncher() {
   }, []);
 
   const stopSpeaking = useCallback(() => {
-    if (mode === "conversation" && rtcDataChannelRef.current?.readyState === "open") {
+    if (mode !== "chat" && rtcDataChannelRef.current?.readyState === "open") {
       if (realtimeSpeakingPendingRef.current) {
         sendRealtimeEvent({ type: "response.cancel" });
         realtimeSpeakingPendingRef.current = false;
@@ -796,7 +797,7 @@ export function AssistantLauncher() {
 
   const speak = useCallback(
     async (text: string) => {
-      if (mode !== "conversation") return;
+      if (mode === "chat") return;
       if (!speakEnabledRef.current) return;
 
       if (rtcDataChannelRef.current?.readyState === "open") {
@@ -890,7 +891,7 @@ export function AssistantLauncher() {
   );
 
   const startConsentListening = useCallback(() => {
-    if (mode !== "conversation") return;
+    if (mode === "chat") return;
     listeningPurposeRef.current = "consent";
     consentBufferRef.current = "";
     setVoicePhase("awaiting_consent");
@@ -1001,7 +1002,7 @@ export function AssistantLauncher() {
     listeningDesiredRef.current = false;
     clearSilenceTimer();
 
-    if (mode === "conversation") {
+    if (mode !== "chat") {
       clearRealtimeTranscribeTimer();
       try {
         rtcLocalStreamRef.current?.getAudioTracks().forEach((t) => {
@@ -1028,7 +1029,7 @@ export function AssistantLauncher() {
   }, [clearRealtimeTranscribeTimer, clearSilenceTimer, mode]);
 
   const startListening = useCallback(() => {
-    if (mode === "conversation") {
+    if (mode !== "chat") {
       if (!supportsRealtime) {
         toast.error("Realtime voice not supported in this browser");
         return;
@@ -1187,7 +1188,7 @@ export function AssistantLauncher() {
       return;
     }
 
-    if (mode === "conversation") {
+    if (mode !== "chat") {
       // Voice-first: start listening as soon as the modal opens (gesture already occurred).
       if (handsFree && voicePhaseRef.current === "idle" && !isListening) {
         listeningPurposeRef.current = "dictation";
@@ -1202,7 +1203,7 @@ export function AssistantLauncher() {
   }, [disconnectRealtime, handsFree, isListening, mode, open, startListening, stopListening, stopSpeaking]);
 
   const applySelected = useCallback(async () => {
-    const selectedActions = actions.filter((a) => a.selected);
+    const selectedActions = actionsRef.current.filter((a) => a.selected);
     if (selectedActions.length === 0) return;
 
     const sessionId = assistantSessionIdRef.current;
@@ -1302,7 +1303,7 @@ export function AssistantLauncher() {
         prev.map((a) => (a.selected && a.status === "applying" ? { ...a, status: "error", error: message } : a))
       );
     }
-  }, [actions, createCustomSymptom, createMealLog, createSupplementLog, createSymptomLog, supplementsList.data, symptomsList.data, toast]);
+  }, [createCustomSymptom, createMealLog, createSupplementLog, createSymptomLog, supplementsList.data, symptomsList.data, toast]);
 
   const submit = useCallback(
     async (overrideText?: string, source: "typed" | "speech" = "typed") => {
@@ -1337,22 +1338,33 @@ export function AssistantLauncher() {
       const history = [...messages, { role: "user" as const, text }].slice(-8);
       const existingActions = uiActionsToPlanActions(actionsRef.current);
 
-      const result = await planAssistantActions({
-        text,
-        history,
-        existingActions,
-        sessionId,
-        correlationId,
-        inputSource: source,
-        mode,
-      });
+      const isV2 = mode === "conversation_v2";
+      const result = isV2
+        ? await conversationV2({
+            text,
+            history,
+            existingActions: existingActions as unknown as AssistantV2Response["actions"],
+            sessionId,
+            correlationId,
+            inputSource: source,
+            mode,
+          })
+        : await planAssistantActions({
+            text,
+            history,
+            existingActions,
+            sessionId,
+            correlationId,
+            inputSource: source,
+            mode: mode === "conversation" ? "conversation" : "chat",
+          });
       if (!result.success) {
         toast.error(result.error);
         const msg = hadExistingActions
           ? `I couldn't update the suggested actions just now (${result.error}). I kept your existing suggestions below.`
           : `I couldn't process that just now (${result.error}). If you repeat it, I’ll try again—or you can type just the foods/symptoms and I’ll log with defaults.`;
         setMessages((prev) => [...prev, { role: "assistant", text: msg }]);
-        if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
+        if (mode !== "chat" && (handsFree || pendingVoiceConfirmRef.current)) {
           pendingVoiceConfirmRef.current = false;
           void speak(msg);
         }
@@ -1360,13 +1372,15 @@ export function AssistantLauncher() {
         return;
       }
 
+      const v2Data = (isV2 ? (result.data as any) : null) as AssistantV2Response | null;
       assistantTurnIdRef.current = result.meta?.turnId ?? null;
       events.emit(
-        "assistant.plan.received",
+        isV2 ? "assistant.v2.received" : "assistant.plan.received",
         {
           correlation_id: correlationId,
           turn_id: assistantTurnIdRef.current,
-          actions_count: result.data.actions.length,
+          actions_count: (result.data as any).actions.length,
+          ...(isV2 ? { intent: v2Data?.decision.intent, apply: v2Data?.decision.apply } : {}),
         },
         { session_id: sessionId }
       );
@@ -1384,9 +1398,32 @@ export function AssistantLauncher() {
         void resolveAllMeals(nextActions);
         setIsPlanning(false);
 
-        if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
+        if (mode !== "chat" && (handsFree || pendingVoiceConfirmRef.current)) {
           pendingVoiceConfirmRef.current = false;
           void (async () => {
+            if (isV2 && v2Data?.decision.apply === "auto") {
+              setVoicePhase("applying");
+              await speak(result.data.message);
+              await applySelected();
+              await speak("Done.");
+              setVoicePhase("idle");
+              if (handsFree && open) {
+                listeningPurposeRef.current = "dictation";
+                startListeningRef.current();
+              }
+              return;
+            }
+
+            if (isV2 && v2Data?.decision.apply === "none") {
+              await speak(result.data.message);
+              setVoicePhase("idle");
+              if (handsFree && open) {
+                listeningPurposeRef.current = "dictation";
+                startListeningRef.current();
+              }
+              return;
+            }
+
             const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
             await speak(`${summary} Say yes to confirm, or no to cancel.`);
             startConsentListening();
@@ -1414,7 +1451,7 @@ export function AssistantLauncher() {
       setPlanMessage(result.data.message);
       setActions([...applied]);
       setIsPlanning(false);
-      if (mode === "conversation" && handsFree) {
+      if (mode !== "chat" && handsFree) {
         void (async () => {
           await speak(result.data.message);
           listeningPurposeRef.current = "dictation";
@@ -1464,7 +1501,7 @@ export function AssistantLauncher() {
           await applySelected();
           await speak("Done.");
           setVoicePhase("idle");
-          if (handsFree && open && mode === "conversation") {
+          if (handsFree && open) {
             listeningPurposeRef.current = "dictation";
             startListeningRef.current();
           }
@@ -1482,7 +1519,7 @@ export function AssistantLauncher() {
         void (async () => {
           await speak("Okay. I won't add anything.");
           setVoicePhase("idle");
-          if (handsFree && open && mode === "conversation") {
+          if (handsFree && open) {
             listeningPurposeRef.current = "dictation";
             startListeningRef.current();
           }
@@ -1564,7 +1601,23 @@ export function AssistantLauncher() {
                 }}
               >
                 <Volume2 className="w-4 h-4" />
-                Conversation
+                Conversation v1
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-1.5 text-sm font-medium transition-all",
+                  mode === "conversation_v2"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
+                )}
+                onClick={() => {
+                  stopListening();
+                  setMode("conversation_v2");
+                }}
+              >
+                <Sparkles className="w-4 h-4" />
+                Conversation v2
               </button>
             </div>
 
@@ -1614,7 +1667,7 @@ export function AssistantLauncher() {
             </div>
 
             <div className="mt-3 space-y-2">
-              {mode === "conversation" && (
+              {mode !== "chat" && (
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   {realtimeStatus === "connecting"
                     ? "Connecting voice…"
@@ -1636,12 +1689,12 @@ export function AssistantLauncher() {
                   onChange={(e) => setInput(e.target.value)}
                   rows={2}
                   className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
-                  placeholder={mode === "conversation" ? "Speak or type…" : "Type or dictate…"}
+                  placeholder={mode !== "chat" ? "Speak or type…" : "Type or dictate…"}
                 />
                 <Button
                   variant={isListening ? "destructive" : "outline"}
                   onClick={() => {
-                    listeningPurposeRef.current = mode === "conversation" && voicePhase === "awaiting_consent" ? "consent" : "dictation";
+                    listeningPurposeRef.current = mode !== "chat" && voicePhase === "awaiting_consent" ? "consent" : "dictation";
                     if (isListening) stopListening();
                     else startListening();
                   }}
@@ -1650,7 +1703,7 @@ export function AssistantLauncher() {
                 >
                   {isListening ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                 </Button>
-                {mode === "conversation" && needsAudioTap && (
+                {mode !== "chat" && needsAudioTap && (
                   <Button
                     variant="outline"
                     onClick={() => {
@@ -1667,7 +1720,7 @@ export function AssistantLauncher() {
                     Enable audio
                   </Button>
                 )}
-                {mode === "conversation" && speechEnabled && (
+                {mode !== "chat" && speechEnabled && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -1680,7 +1733,7 @@ export function AssistantLauncher() {
                 )}
                 <Button
                   onClick={() => {
-                    pendingVoiceConfirmRef.current = mode === "conversation";
+                    pendingVoiceConfirmRef.current = mode !== "chat";
                     void submit();
                   }}
                   disabled={isPlanning || !input.trim()}
