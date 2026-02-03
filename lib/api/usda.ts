@@ -277,6 +277,16 @@ function buildQueryVariants(query: string): string[] {
     variants.add("oats cooked");
   }
 
+  const qLower = query.toLowerCase();
+  if (/\btomato\b/.test(qLower) && /\bsoup\b/.test(qLower)) {
+    variants.add("soup, tomato");
+    variants.add("tomato soup");
+  }
+  if (/\bgrilled\b/.test(qLower) && /\bcheese\b/.test(qLower) && /\bsandwich\b/.test(qLower)) {
+    variants.add("sandwich, grilled cheese");
+    variants.add("grilled cheese");
+  }
+
   // Normalize common cooking terms to increase recall.
   const tokensToStrip = [
     "cooked",
@@ -345,6 +355,7 @@ const STOPWORDS = new Set([
   "for",
   "to",
   "from",
+  "homemade",
   "fresh",
   "frozen",
   "canned",
@@ -419,6 +430,24 @@ const TOKEN_SYNONYMS: Record<string, string[]> = {
   oatmeal: ["oat"],
 };
 
+const MAJOR_INGREDIENT_PENALTIES: Record<string, number> = {
+  chicken: 900,
+  beef: 900,
+  pork: 900,
+  bacon: 700,
+  ham: 700,
+  turkey: 800,
+  fish: 900,
+  tuna: 900,
+  salmon: 900,
+  shrimp: 900,
+  mayonnaise: 520,
+  ranch: 520,
+  club: 420,
+  lettuce: 260,
+  sauce: 260,
+};
+
 function tokenizeForMatch(input: string): string[] {
   const raw = input.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   // Light singularization helps align "noodles" vs "noodle", "crackers" vs "cracker".
@@ -441,6 +470,7 @@ function coreQueryTokens(query: string): string[] {
 }
 
 function looksLikeGenericIngredientQuery(query: string): boolean {
+  if (/\bhomemade\b/i.test(query)) return true;
   const core = coreQueryTokens(query);
   if (core.length === 0) return true;
   if (core.length > 3) return false;
@@ -543,7 +573,7 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
   // Branded results frequently win due to inflated USDA scores, but are often not what users mean.
   let brandedPenalty = 0;
   const looksGeneric = looksLikeGenericIngredientQuery(query);
-  if (looksGeneric && dt.includes("branded")) brandedPenalty -= 140;
+  if (dt.includes("branded")) brandedPenalty -= looksGeneric ? 180 : 80;
 
   // Penalize common mismatches like "avocado" -> "avocado oil" unless explicitly asked.
   let mismatchPenalty = 0;
@@ -566,6 +596,17 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
     }
   }
 
+  // Brand-ish SR Legacy entries often start with "BRAND'S," (e.g. "CAMPBELL'S, Tomato Soup").
+  // For generic/homemade intents, prefer non-brand generic entries when available.
+  if (looksGeneric && /^\w+'s,/.test(desc)) mismatchPenalty -= 650;
+
+  // Dish mismatch penalty: down-rank candidates that introduce major ingredients not mentioned.
+  for (const [t, penalty] of Object.entries(MAJOR_INGREDIENT_PENALTIES)) {
+    if (!descSet.has(t)) continue;
+    if (qSetAll.has(t)) continue;
+    mismatchPenalty -= penalty;
+  }
+
   // Penalize common "close but wrong" variants unless explicitly asked for.
   // Example: "broccoli cooked" should not match "broccoli raab, cooked".
   let variantPenalty = 0;
@@ -575,16 +616,27 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
   for (const t of VARIETY_TOKENS) penalizeIfMissing(t, 500);
 
   let overlap = 0;
+  let matchedCore = 0;
   for (const t of qTokens) {
     if (t.length <= 2) continue;
     // Exact token match is much stronger than substring.
-    if (descSet.has(t)) overlap += 18;
-    else if (desc.includes(t)) overlap += 6;
+    if (descSet.has(t)) {
+      overlap += 18;
+      matchedCore += 1;
+    } else if (desc.includes(t)) {
+      overlap += 6;
+      matchedCore += 1;
+    }
   }
 
   // If none of the core query tokens appear, it's almost certainly irrelevant (often driven by cooking terms).
   const hasAnyCore = qTokens.length === 0 ? true : qTokens.some((t) => descSet.has(t) || desc.includes(t));
   const coreMissingPenalty = hasAnyCore ? 0 : -800;
+
+  let partialMatchPenalty = 0;
+  if (qTokens.length >= 2 && matchedCore > 0 && matchedCore < Math.ceil(qTokens.length / 2)) {
+    partialMatchPenalty -= 520;
+  }
 
   return (
     baseScore +
@@ -595,7 +647,8 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
     brandedPenalty +
     mismatchPenalty +
     variantPenalty +
-    coreMissingPenalty
+    coreMissingPenalty +
+    partialMatchPenalty
   );
 }
 
