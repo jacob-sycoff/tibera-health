@@ -61,19 +61,46 @@ export async function planAssistantActions(args: {
   text: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   existingActions?: AssistantPlan["actions"];
-}): Promise<{ success: true; data: AssistantPlan } | { success: false; error: string }> {
+  sessionId?: string;
+  inputSource?: "typed" | "speech";
+  correlationId?: string;
+  mode?: "chat" | "conversation";
+}): Promise<
+  | { success: true; data: AssistantPlan; meta?: { sessionId?: string; turnId?: string } }
+  | { success: false; error: string }
+> {
   const nowIso = new Date().toISOString();
   const today = new Date().toISOString().slice(0, 10);
 
   const response = await fetch("/api/assistant/plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: args.text, nowIso, today, history: args.history, existingActions: args.existingActions }),
+    body: JSON.stringify({
+      text: args.text,
+      nowIso,
+      today,
+      history: args.history,
+      existingActions: args.existingActions,
+      sessionId: args.sessionId,
+      inputSource: args.inputSource,
+      correlationId: args.correlationId,
+      mode: args.mode,
+    }),
   });
 
   const json = (await response.json()) as unknown;
   const parsed = z
-    .object({ success: z.boolean(), data: z.unknown().optional(), error: z.string().optional() })
+    .object({
+      success: z.boolean(),
+      data: z.unknown().optional(),
+      error: z.string().optional(),
+      meta: z
+        .object({
+          sessionId: z.string().uuid().optional(),
+          turnId: z.string().uuid().optional(),
+        })
+        .optional(),
+    })
     .safeParse(json);
 
   if (!parsed.success) return { success: false, error: "Invalid assistant response" };
@@ -82,5 +109,5 @@ export async function planAssistantActions(args: {
   const planParsed = AssistantPlanSchema.safeParse(parsed.data.data);
   if (!planParsed.success) return { success: false, error: "Could not parse assistant plan" };
 
-  return { success: true, data: planParsed.data };
+  return { success: true, data: planParsed.data, meta: parsed.data.meta };
 }

@@ -88,6 +88,10 @@ const RequestSchema = z
     text: z.string().min(1),
     nowIso: z.string().datetime().optional(),
     today: DateSchema.optional(),
+    sessionId: z.string().uuid().optional(),
+    correlationId: z.string().uuid().optional(),
+    inputSource: z.enum(["typed", "speech"]).optional(),
+    mode: z.enum(["chat", "conversation"]).optional(),
     history: z
       .array(
         z
@@ -568,8 +572,127 @@ Rules:
 - If no severity is given for a symptom, set severity to 5 (moderate).
 - If dosage/unit is missing for a supplement, use dosage 1 and unit "serving".
 - If date/time is not specified, use null (the client will default to 'now' or 'today').
+- If the user specifies a time like "2pm" or "6 p.m.", convert to 24-hour "HH:MM" (e.g. 2pm -> "14:00").
 - confidence must be 0-1 and reflect how certain you are that the action is correct.
 - Handle typos, informal language, and natural phrasing gracefully. Users won't speak in a rigid format.`;
+
+const RESPONSE_JSON_SCHEMA = {
+  name: "assistant_plan",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["message", "actions"],
+    properties: {
+      message: { type: "string", minLength: 1 },
+      actions: {
+        type: "array",
+        maxItems: 12,
+        items: {
+          oneOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["type", "title", "confidence", "data"],
+              properties: {
+                type: { const: "log_meal" },
+                title: { type: "string", minLength: 1 },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                data: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["items"],
+                  properties: {
+                    date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+                    mealType: { type: ["string", "null"], enum: ["breakfast", "lunch", "dinner", "snack", null] },
+                    items: {
+                      type: "array",
+                      minItems: 1,
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["label", "usdaQuery"],
+                        properties: {
+                          label: { type: "string", minLength: 1 },
+                          usdaQuery: { type: "string", minLength: 1 },
+                          gramsConsumed: { type: ["number", "null"], minimum: 0 },
+                          servings: { type: ["number", "null"], minimum: 0 },
+                          notes: { type: "string" },
+                        },
+                      },
+                    },
+                    notes: { type: "string" },
+                  },
+                },
+              },
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["type", "title", "confidence", "data"],
+              properties: {
+                type: { const: "log_symptom" },
+                title: { type: "string", minLength: 1 },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                data: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["symptom"],
+                  properties: {
+                    symptom: { type: "string", minLength: 1 },
+                    severity: { type: ["integer", "null"], minimum: 1, maximum: 10 },
+                    date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+                    time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
+                    notes: { type: "string" },
+                  },
+                },
+              },
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["type", "title", "confidence", "data"],
+              properties: {
+                type: { const: "log_supplement" },
+                title: { type: "string", minLength: 1 },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                data: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["supplement"],
+                  properties: {
+                    supplement: { type: "string", minLength: 1 },
+                    dosage: { type: ["number", "null"], minimum: 0 },
+                    unit: { type: ["string", "null"], minLength: 1 },
+                    date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+                    time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
+                    notes: { type: "string" },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
+} as const;
+
+function extractResponsesText(payload: any): string | null {
+  const text = payload?.output_text;
+  if (typeof text === "string" && text.trim()) return text;
+  const output = payload?.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      const content = item?.content;
+      if (!Array.isArray(content)) continue;
+      for (const c of content) {
+        if (c?.type === "output_text" && typeof c?.text === "string" && c.text.trim()) return c.text;
+      }
+    }
+  }
+  return null;
+}
 
 async function tryOpenAiPlan(args: {
   model: string;
@@ -601,7 +724,7 @@ async function tryOpenAiPlan(args: {
 
   const userPrompt = `User said:\n${args.text}${todayBlock}${nowBlock}\n\nReturn JSON only.`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -610,18 +733,17 @@ async function tryOpenAiPlan(args: {
     body: JSON.stringify({
       model: args.model,
       temperature: 0.2,
-      max_tokens: 1500,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `${userPrompt}${historyBlock}${existingActionsBlock}` },
-      ],
+      max_output_tokens: 1500,
+      instructions: SYSTEM_PROMPT,
+      input: `${userPrompt}${historyBlock}${existingActionsBlock}`,
+      response_format: { type: "json_schema", json_schema: RESPONSE_JSON_SCHEMA },
     }),
   });
 
   if (!response.ok) return null;
 
-  const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const text = json.choices?.[0]?.message?.content;
+  const json = (await response.json()) as unknown as any;
+  const text = extractResponsesText(json);
   if (!text) return null;
 
   try {
@@ -665,18 +787,81 @@ export async function POST(request: NextRequest) {
     const { text, nowIso, today } = parsedBody.data;
     const history = parsedBody.data.history;
     const existingActions = parsedBody.data.existingActions;
+    const sessionId = parsedBody.data.sessionId ?? crypto.randomUUID();
+    const correlationId = parsedBody.data.correlationId ?? crypto.randomUUID();
+    const inputSource = parsedBody.data.inputSource ?? "typed";
+    const mode = parsedBody.data.mode ?? "conversation";
+
+    let turnId: string | null = null;
+    try {
+      await supabase
+        .from("assistant_sessions")
+        .upsert(
+          {
+            id: sessionId,
+            user_id: user.id,
+            mode,
+            last_active_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+
+      const { data: turn, error: turnError } = await supabase
+        .from("assistant_turns")
+        .insert({
+          user_id: user.id,
+          session_id: sessionId,
+          correlation_id: correlationId,
+          input_text: text,
+          input_source: inputSource,
+          metadata: {
+            history_count: history?.length ?? 0,
+            existing_actions_count: existingActions?.length ?? 0,
+          },
+        })
+        .select("id")
+        .single();
+      if (!turnError && turn?.id) turnId = turn.id as string;
+
+      await supabase.from("app_events").insert({
+        user_id: user.id,
+        session_id: sessionId,
+        correlation_id: correlationId,
+        event_type: "assistant.plan.request",
+        source: "server",
+        ts: new Date().toISOString(),
+        privacy_level: "sensitive",
+        payload: {
+          turn_id: turnId,
+          input_source: inputSource,
+          input_chars: text.length,
+          history_count: history?.length ?? 0,
+          existing_actions_count: existingActions?.length ?? 0,
+        },
+      });
+    } catch {
+      // Best-effort: planning should still work even if event persistence fails.
+    }
 
     const models = {
       cheap: process.env.OPENAI_ASSISTANT_MODEL_CHEAP || "gpt-4o-mini",
       strong: process.env.OPENAI_ASSISTANT_MODEL_STRONG || "gpt-4o",
     };
 
+    const startedAt = Date.now();
+    let usedModel: string | null = null;
+
     let planned = await tryOpenAiPlan({ model: models.cheap, text, nowIso, today, history, existingActions });
+    if (planned) usedModel = models.cheap;
     if (planned && shouldUpgradeToStrongModel(planned)) {
       const upgraded = await tryOpenAiPlan({ model: models.strong, text, nowIso, today, history, existingActions });
-      if (upgraded) planned = upgraded;
+      if (upgraded) {
+        planned = upgraded;
+        usedModel = models.strong;
+      }
     } else if (!planned) {
       planned = await tryOpenAiPlan({ model: models.strong, text, nowIso, today, history, existingActions });
+      if (planned) usedModel = models.strong;
     }
 
     if (!planned) {
@@ -687,17 +872,83 @@ export async function POST(request: NextRequest) {
         nowIso,
         today,
       });
+      if (planned) usedModel = models.strong;
     }
 
     if (!planned) {
+      try {
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          session_id: sessionId,
+          correlation_id: correlationId,
+          event_type: "assistant.plan.error",
+          source: "server",
+          ts: new Date().toISOString(),
+          privacy_level: "sensitive",
+          payload: { turn_id: turnId, error: "Could not understand that" },
+        });
+      } catch {
+        // ignore
+      }
       return NextResponse.json(
-        { success: false, error: "Could not understand that. Try adding a bit more detail." },
+        { success: false, error: "Could not understand that. Try again." },
         { status: 422 }
       );
     }
 
-    const enriched = applyPortionHeuristics(text, applyMedicationHeuristics(text, applyCookingHeuristics(text, planned)));
-    return NextResponse.json({ success: true, data: enriched });
+    // Post-process for better defaults and fewer follow-up questions.
+    planned = applyCookingHeuristics(text, planned);
+    planned = applyMedicationHeuristics(text, planned);
+    planned = applyPortionHeuristics(text, planned);
+
+    const latencyMs = Math.max(0, Date.now() - startedAt);
+    try {
+      if (turnId) {
+        await supabase
+          .from("assistant_turns")
+          .update({
+            plan_json: planned as any,
+            plan_message: planned.message,
+            plan_actions_count: planned.actions.length,
+            plan_model: usedModel,
+            plan_latency_ms: latencyMs,
+          })
+          .eq("id", turnId)
+          .eq("user_id", user.id);
+      }
+
+      await supabase
+        .from("assistant_sessions")
+        .update({ last_active_at: new Date().toISOString() })
+        .eq("id", sessionId)
+        .eq("user_id", user.id);
+
+      const avgConfidence =
+        planned.actions.length === 0
+          ? null
+          : planned.actions.reduce((s, a) => s + (Number.isFinite(a.confidence) ? a.confidence : 0.6), 0) / planned.actions.length;
+
+      await supabase.from("app_events").insert({
+        user_id: user.id,
+        session_id: sessionId,
+        correlation_id: correlationId,
+        event_type: "assistant.plan.success",
+        source: "server",
+        ts: new Date().toISOString(),
+        privacy_level: "standard",
+        payload: {
+          turn_id: turnId,
+          actions_count: planned.actions.length,
+          avg_confidence: avgConfidence,
+          model: usedModel,
+          latency_ms: latencyMs,
+        },
+      });
+    } catch {
+      // ignore
+    }
+
+    return NextResponse.json({ success: true, data: planned, meta: { sessionId, turnId } });
   } catch (error) {
     console.error("Assistant plan error:", error);
     return NextResponse.json({ success: false, error: "Failed to plan actions. Please try again." }, { status: 500 });

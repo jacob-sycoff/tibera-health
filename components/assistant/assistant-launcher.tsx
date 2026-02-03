@@ -12,6 +12,7 @@ import { planAssistantActions, type AssistantPlan } from "@/lib/api/assistant";
 import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
 import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { FoodSearch } from "@/components/food/food-search";
+import { events } from "@/lib/events/client";
 import {
   useCreateCustomSymptom,
   useCreateMealLog,
@@ -350,8 +351,11 @@ export function AssistantLauncher() {
   const speakEnabledRef = useRef(true);
   const startListeningRef = useRef<() => void>(() => {});
   const stopListeningRef = useRef<() => void>(() => {});
-  const submitRef = useRef<(text?: string) => void>(() => {});
+  const submitRef = useRef<(text?: string, source?: "typed" | "speech") => void>(() => {});
   const inputRef = useRef(input);
+  const assistantSessionIdRef = useRef<string | null>(null);
+  const assistantTurnIdRef = useRef<string | null>(null);
+  const assistantCorrelationIdRef = useRef<string | null>(null);
 
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("disconnected");
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
@@ -402,6 +406,41 @@ export function AssistantLauncher() {
     const w = window as unknown as { RTCPeerConnection?: unknown };
     return Boolean(w.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
   }, []);
+
+  useEffect(() => {
+    events.init();
+    if (typeof window === "undefined") return;
+    events.setBaseContext({
+      app: "tibera-health",
+      path: window.location.pathname,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!assistantSessionIdRef.current) return;
+    events.emit("ui.assistant.mode_changed", { mode }, { session_id: assistantSessionIdRef.current });
+  }, [mode, open]);
+
+  useEffect(() => {
+    if (!open) {
+      const sessionId = assistantSessionIdRef.current;
+      if (sessionId) {
+        events.emit("ui.assistant.close", { mode }, { session_id: sessionId });
+      }
+      assistantSessionIdRef.current = null;
+      assistantTurnIdRef.current = null;
+      assistantCorrelationIdRef.current = null;
+      events.setSessionId(null);
+      return;
+    }
+
+    const sessionId = uuid();
+    assistantSessionIdRef.current = sessionId;
+    events.setSessionId(sessionId);
+    events.emit("ui.assistant.open", { mode }, { session_id: sessionId });
+  }, [open]);
 
   useEffect(() => {
     if (!remoteAudioStream) return;
@@ -514,6 +553,7 @@ export function AssistantLauncher() {
 
     setRealtimeStatus("disconnected");
     setRealtimeError(null);
+    events.emit("voice.realtime.disconnected", {}, { session_id: assistantSessionIdRef.current });
     listeningDesiredRef.current = false;
     setIsListening(false);
   }, []);
@@ -533,7 +573,7 @@ export function AssistantLauncher() {
 
       pendingVoiceConfirmRef.current = true;
       setVoicePhase("dictating");
-      submitRef.current(text);
+      submitRef.current(text, "speech");
     },
     []
   );
@@ -589,7 +629,7 @@ export function AssistantLauncher() {
       if (type === "conversation.item.input_audio_transcription.completed" && typeof event?.transcript === "string") {
         const itemId = typeof event?.item_id === "string" ? event.item_id : "unknown";
         delete realtimeTranscriptionDeltaByItemRef.current[itemId];
-        handleRealtimeTranscript(event.transcript);
+          handleRealtimeTranscript(event.transcript);
         return;
       }
 
@@ -690,6 +730,7 @@ export function AssistantLauncher() {
       dc.onopen = () => {
         setRealtimeStatus("connected");
         if (listeningDesiredRef.current) setIsListening(true);
+        events.emit("voice.realtime.connected", { voice, model }, { session_id: assistantSessionIdRef.current });
 
         // Keep the realtime model silent by default; the app explicitly requests spoken responses.
         setNeedsAudioTap(false);
@@ -745,6 +786,7 @@ export function AssistantLauncher() {
       await pc.setRemoteDescription({ type: "answer", sdp });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start realtime voice";
+      events.emit("voice.realtime.error", { error: message }, { session_id: assistantSessionIdRef.current, privacy_level: "sensitive" });
       disconnectRealtime();
       setRealtimeStatus("error");
       setRealtimeError(message);
@@ -1075,7 +1117,7 @@ export function AssistantLauncher() {
           if (!text) return;
           pendingVoiceConfirmRef.current = true;
           stopListening();
-          submitRef.current(text);
+          submitRef.current(text, "speech");
         }, 1250);
       }
     };
@@ -1163,6 +1205,13 @@ export function AssistantLauncher() {
     const selectedActions = actions.filter((a) => a.selected);
     if (selectedActions.length === 0) return;
 
+    const sessionId = assistantSessionIdRef.current;
+    events.emit(
+      "assistant.apply.start",
+      { turn_id: assistantTurnIdRef.current, selected_count: selectedActions.length },
+      { session_id: sessionId }
+    );
+
     setActions((prev) => prev.map((a) => (a.selected ? { ...a, status: "applying", error: undefined } : a)));
 
     try {
@@ -1170,11 +1219,6 @@ export function AssistantLauncher() {
         if (action.type === "log_meal") {
           const date = action.data.date || new Date().toISOString().slice(0, 10);
           const mealType = action.data.mealType || defaultMealTypeFromClock();
-
-          const unresolved = action.data.items.filter((i) => !i.matchedFood);
-          if (unresolved.length > 0) {
-            throw new Error(`Pick USDA matches for: ${unresolved.map((u) => u.label).join(", ")}`);
-          }
 
           await createMealLog.mutateAsync({
             date,
@@ -1224,9 +1268,35 @@ export function AssistantLauncher() {
         );
       }
 
+      events.emit(
+        "assistant.apply.success",
+        { turn_id: assistantTurnIdRef.current, applied_count: selectedActions.length },
+        { session_id: sessionId }
+      );
+      events.flushSoon();
+      if (assistantTurnIdRef.current) {
+        void fetch("/api/assistant/turn/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId: assistantTurnIdRef.current, applied: true }),
+        });
+      }
       toast.success("Applied actions");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to apply actions";
+      events.emit(
+        "assistant.apply.error",
+        { turn_id: assistantTurnIdRef.current, error: message },
+        { session_id: sessionId, privacy_level: "sensitive" }
+      );
+      events.flushSoon();
+      if (assistantTurnIdRef.current) {
+        void fetch("/api/assistant/turn/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId: assistantTurnIdRef.current, applied: false, applyError: message }),
+        });
+      }
       toast.error(message);
       setActions((prev) =>
         prev.map((a) => (a.selected && a.status === "applying" ? { ...a, status: "error", error: message } : a))
@@ -1235,11 +1305,30 @@ export function AssistantLauncher() {
   }, [actions, createCustomSymptom, createMealLog, createSupplementLog, createSymptomLog, supplementsList.data, symptomsList.data, toast]);
 
   const submit = useCallback(
-    async (overrideText?: string) => {
+    async (overrideText?: string, source: "typed" | "speech" = "typed") => {
       const text = (overrideText ?? input).trim();
       if (!text || isPlanning) return;
 
       const hadExistingActions = actionsRef.current.some((a) => a.status !== "applied");
+
+      const sessionId = assistantSessionIdRef.current ?? uuid();
+      if (!assistantSessionIdRef.current) {
+        assistantSessionIdRef.current = sessionId;
+        events.setSessionId(sessionId);
+      }
+      const correlationId = uuid();
+      assistantCorrelationIdRef.current = correlationId;
+
+      events.emit(
+        "assistant.turn.submit",
+        {
+          correlation_id: correlationId,
+          input_source: source,
+          input_chars: text.length,
+          had_existing_actions: hadExistingActions,
+        },
+        { session_id: sessionId, privacy_level: "sensitive" }
+      );
 
       setIsPlanning(true);
       setMessages((prev) => [...prev, { role: "user", text }]);
@@ -1248,21 +1337,39 @@ export function AssistantLauncher() {
       const history = [...messages, { role: "user" as const, text }].slice(-8);
       const existingActions = uiActionsToPlanActions(actionsRef.current);
 
-      const result = await planAssistantActions({ text, history, existingActions });
+      const result = await planAssistantActions({
+        text,
+        history,
+        existingActions,
+        sessionId,
+        correlationId,
+        inputSource: source,
+        mode,
+      });
       if (!result.success) {
         toast.error(result.error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            text: hadExistingActions
-              ? "I couldn't update the suggested actions right now, so I kept your existing suggestions below."
-              : "Sorry, I had trouble with that. Could you tell me a bit more? For example, what meal was it, or roughly how much of each item?",
-          },
-        ]);
+        const msg = hadExistingActions
+          ? `I couldn't update the suggested actions just now (${result.error}). I kept your existing suggestions below.`
+          : `I couldn't process that just now (${result.error}). If you repeat it, I’ll try again—or you can type just the foods/symptoms and I’ll log with defaults.`;
+        setMessages((prev) => [...prev, { role: "assistant", text: msg }]);
+        if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
+          pendingVoiceConfirmRef.current = false;
+          void speak(msg);
+        }
         setIsPlanning(false);
         return;
       }
+
+      assistantTurnIdRef.current = result.meta?.turnId ?? null;
+      events.emit(
+        "assistant.plan.received",
+        {
+          correlation_id: correlationId,
+          turn_id: assistantTurnIdRef.current,
+          actions_count: result.data.actions.length,
+        },
+        { session_id: sessionId }
+      );
 
       const nextActions = planToUiActions(result.data);
       const applied = actionsRef.current.filter((a) => a.status === "applied");
@@ -1280,12 +1387,6 @@ export function AssistantLauncher() {
         if (mode === "conversation" && (handsFree || pendingVoiceConfirmRef.current)) {
           pendingVoiceConfirmRef.current = false;
           void (async () => {
-            const ok = await waitForMealMatches(7000);
-            if (!ok) {
-              await speak("I need you to confirm a food match on screen before I can log this.");
-              setVoicePhase("idle");
-              return;
-            }
             const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
             await speak(`${summary} Say yes to confirm, or no to cancel.`);
             startConsentListening();
@@ -1333,14 +1434,13 @@ export function AssistantLauncher() {
       speak,
       startConsentListening,
       toast,
-      waitForMealMatches,
     ]
   );
 
   // Keep submitRef stable for voice flows.
   useEffect(() => {
-    submitRef.current = (overrideText?: string) => {
-      void submit(overrideText);
+    submitRef.current = (overrideText?: string, source?: "typed" | "speech") => {
+      void submit(overrideText, source ?? "typed");
     };
   }, [submit]);
 
@@ -1353,6 +1453,11 @@ export function AssistantLauncher() {
       if (voicePhaseRef.current !== "awaiting_consent") return;
 
       if (/\b(yes|yep|yeah|confirm|go ahead|do it|apply|sounds good)\b/.test(t)) {
+        events.emit(
+          "assistant.consent.yes",
+          { turn_id: assistantTurnIdRef.current, correlation_id: assistantCorrelationIdRef.current },
+          { session_id: assistantSessionIdRef.current }
+        );
         stopListeningRef.current();
         void (async () => {
           setVoicePhase("applying");
@@ -1368,6 +1473,11 @@ export function AssistantLauncher() {
       }
 
       if (/\b(no|nope|cancel|stop|never mind|nevermind)\b/.test(t)) {
+        events.emit(
+          "assistant.consent.no",
+          { turn_id: assistantTurnIdRef.current, correlation_id: assistantCorrelationIdRef.current },
+          { session_id: assistantSessionIdRef.current }
+        );
         stopListeningRef.current();
         void (async () => {
           await speak("Okay. I won't add anything.");
@@ -1381,6 +1491,11 @@ export function AssistantLauncher() {
       }
 
       if (/\b(repeat|again|say that again)\b/.test(t)) {
+        events.emit(
+          "assistant.consent.repeat",
+          { turn_id: assistantTurnIdRef.current, correlation_id: assistantCorrelationIdRef.current },
+          { session_id: assistantSessionIdRef.current }
+        );
         stopListeningRef.current();
         void (async () => {
           const summary = describeActionsForSpeech(actionsRef.current.filter((a) => a.status !== "applied"));
@@ -1550,6 +1665,17 @@ export function AssistantLauncher() {
                     size="sm"
                   >
                     Enable audio
+                  </Button>
+                )}
+                {mode === "conversation" && speechEnabled && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void speak("Test. Can you hear me?");
+                    }}
+                  >
+                    Test voice
                   </Button>
                 )}
                 <Button

@@ -594,6 +594,13 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
       if (t === "peel" && /\bwithout\s+peel\b/i.test(desc)) continue;
       if (descSet.has(t)) mismatchPenalty -= penalty;
     }
+  } else {
+    // Even for non-generic queries, penalize obvious wrong forms unless explicitly requested.
+    // This fixes cases like "grilled cheese sandwich" matching "crackers, sandwich-type with cheese filling".
+    for (const [t, penalty] of Object.entries(PREPARED_FORM_PENALTIES)) {
+      if (qSetAll.has(t)) continue;
+      if (descSet.has(t)) mismatchPenalty -= Math.round(penalty * 0.6);
+    }
   }
 
   // Brand-ish SR Legacy entries often start with "BRAND'S," (e.g. "CAMPBELL'S, Tomato Soup").
