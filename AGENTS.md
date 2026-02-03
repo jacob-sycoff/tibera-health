@@ -66,4 +66,4 @@ Script: `mark-migrations-applied.cjs`
 2. Keep SQL idempotent
 3. Keep `schema_migrations` in sync if you apply manually
 4. Enable RLS + policies on any new tables
-
+5. Never delete/rename files (especially untracked/WIP) unless the user explicitly asks; if something is untracked, leave it alone or add/track it—do not remove it.
