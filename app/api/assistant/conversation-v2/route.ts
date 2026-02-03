@@ -326,19 +326,23 @@ async function tryOpenAiConversationV2(args: {
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const suffix = body ? `: ${body.slice(0, 800)}` : "";
+    throw new Error(`OpenAI responses error ${response.status}${suffix}`);
+  }
 
   const json = (await response.json()) as unknown as any;
   const text = extractResponsesText(json);
-  if (!text) return null;
+  if (!text) throw new Error("OpenAI responses error: missing output_text");
 
   try {
     const raw = JSON.parse(cleanJson(text)) as unknown;
     const parsed = AssistantV2ResponseSchema.safeParse(raw);
     if (parsed.success) return parsed.data;
-    return null;
+    throw new Error("Assistant v2 response failed schema validation");
   } catch {
-    return null;
+    throw new Error("Assistant v2 response was not valid JSON");
   }
 }
 
@@ -424,8 +428,11 @@ export async function POST(request: NextRequest) {
 
     const startedAt = Date.now();
     const model = OPENAI_MODELS.assistantV2;
-    const planned = await tryOpenAiConversationV2({ model, text, nowIso, today, history, existingActions });
-    if (!planned) {
+    let planned: AssistantV2Response;
+    try {
+      planned = (await tryOpenAiConversationV2({ model, text, nowIso, today, history, existingActions })) as AssistantV2Response;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Assistant v2 failed";
       try {
         await supabase.from("app_events").insert({
           user_id: user.id,
@@ -435,12 +442,13 @@ export async function POST(request: NextRequest) {
           source: "server",
           ts: new Date().toISOString(),
           privacy_level: "sensitive",
-          payload: { turn_id: turnId, error: "Failed to produce a valid response" },
+          payload: { turn_id: turnId, error: message, model },
         });
       } catch {
         // ignore
       }
-      return NextResponse.json({ success: false, error: "Could not understand that. Try again." }, { status: 422 });
+      // Surface the real cause (e.g. model not found / permissions) to avoid confusion.
+      return NextResponse.json({ success: false, error: message }, { status: 502 });
     }
 
     const latencyMs = Math.max(0, Date.now() - startedAt);
