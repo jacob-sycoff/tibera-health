@@ -154,7 +154,52 @@ const RESPONSE_JSON_SCHEMA: any = {
       actions: {
         type: "array",
         maxItems: 12,
-        items: { oneOf: [] as any[] },
+        // OpenAI's supported JSON Schema subset for `text.format` does not permit `oneOf` here.
+        // Use a superset schema and validate precisely with Zod after generation.
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "title", "confidence", "data"],
+          properties: {
+            type: { enum: ["log_meal", "log_symptom", "log_supplement"] },
+            title: { type: "string", minLength: 1 },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            data: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                // meal
+                date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+                mealType: { type: ["string", "null"], enum: ["breakfast", "lunch", "dinner", "snack", null] },
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["label", "usdaQuery"],
+                    properties: {
+                      label: { type: "string", minLength: 1 },
+                      usdaQuery: { type: "string", minLength: 1 },
+                      gramsConsumed: { type: ["number", "null"], minimum: 0 },
+                      servings: { type: ["number", "null"], minimum: 0 },
+                      notes: { type: "string" },
+                    },
+                  },
+                },
+                // symptom
+                symptom: { type: "string" },
+                severity: { type: ["number", "null"], minimum: 1, maximum: 10 },
+                time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
+                // supplement
+                supplement: { type: "string" },
+                dosage: { type: ["number", "null"], minimum: 0 },
+                unit: { type: ["string", "null"], minLength: 1 },
+                // shared
+                notes: { type: "string" },
+              },
+            },
+          },
+        },
       },
       decision: {
         type: "object",
@@ -170,91 +215,6 @@ const RESPONSE_JSON_SCHEMA: any = {
     },
   },
 };
-
-// Fill action schemas (keep in sync with ActionSchema/Zod)
-RESPONSE_JSON_SCHEMA.schema.properties.actions.items.oneOf = [
-  {
-    type: "object",
-    additionalProperties: false,
-    required: ["type", "title", "confidence", "data"],
-    properties: {
-      type: { const: "log_meal" },
-      title: { type: "string", minLength: 1 },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      data: {
-        type: "object",
-        additionalProperties: false,
-        required: ["items"],
-        properties: {
-          date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-          mealType: { type: ["string", "null"], enum: ["breakfast", "lunch", "dinner", "snack", null] },
-          items: {
-            type: "array",
-            minItems: 1,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["label", "usdaQuery"],
-              properties: {
-                label: { type: "string", minLength: 1 },
-                usdaQuery: { type: "string", minLength: 1 },
-                gramsConsumed: { type: ["number", "null"], minimum: 0 },
-                servings: { type: ["number", "null"], minimum: 0 },
-                notes: { type: "string" },
-              },
-            },
-          },
-          notes: { type: "string" },
-        },
-      },
-    },
-  },
-  {
-    type: "object",
-    additionalProperties: false,
-    required: ["type", "title", "confidence", "data"],
-    properties: {
-      type: { const: "log_symptom" },
-      title: { type: "string", minLength: 1 },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      data: {
-        type: "object",
-        additionalProperties: false,
-        required: ["symptom"],
-        properties: {
-          symptom: { type: "string", minLength: 1 },
-          severity: { type: ["number", "null"], minimum: 1, maximum: 10 },
-          date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-          time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
-          notes: { type: "string" },
-        },
-      },
-    },
-  },
-  {
-    type: "object",
-    additionalProperties: false,
-    required: ["type", "title", "confidence", "data"],
-    properties: {
-      type: { const: "log_supplement" },
-      title: { type: "string", minLength: 1 },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      data: {
-        type: "object",
-        additionalProperties: false,
-        required: ["supplement"],
-        properties: {
-          supplement: { type: "string", minLength: 1 },
-          dosage: { type: ["number", "null"], minimum: 0 },
-          unit: { type: ["string", "null"], minLength: 1 },
-          date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-          time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
-          notes: { type: "string" },
-        },
-      },
-    },
-  },
-];
 
 function cleanJson(text: string): string {
   let jsonText = text.trim();
