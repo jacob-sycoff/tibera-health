@@ -152,6 +152,28 @@ function normalizeKey(text: string): string {
     .replace(/\s+/g, " ");
 }
 
+function isMicCheck(text: string): boolean {
+  const t = normalizeKey(text);
+  if (!t) return false;
+  if (t.length > 220) return false;
+  if (/\b(mic|microphone)\b/.test(t) && /\b(test|testing|check)\b/.test(t)) return true;
+  if (/\b(test|testing)\b/.test(t) && /\b(hear me|can you hear|do you hear)\b/.test(t)) return true;
+  if (/^testing(?:\s*,?\s*testing)?(?:\s*,?\s*(one|two|three|1|2|3))+/.test(t)) return true;
+  if (/\b(check|testing)\b/.test(t) && /\b(one|two|three|1|2|3)\b/.test(t) && t.split(" ").length <= 12) return true;
+  return false;
+}
+
+function shortCircuitResponse(text: string): AssistantPlan | null {
+  if (isMicCheck(text)) {
+    return {
+      message:
+        "Yep — I can hear you. When you're ready, tell me what you ate, any symptoms, or supplements, and I’ll log it.",
+      actions: [],
+    };
+  }
+  return null;
+}
+
 function hasMealItem(actions: AssistantPlan["actions"], needle: string): boolean {
   const n = normalizeKey(needle);
   return actions.some((a) => {
@@ -841,6 +863,44 @@ export async function POST(request: NextRequest) {
       });
     } catch {
       // Best-effort: planning should still work even if event persistence fails.
+    }
+
+    const shortCircuit = shortCircuitResponse(text);
+    if (shortCircuit) {
+      try {
+        if (turnId) {
+          await supabase
+            .from("assistant_turns")
+            .update({
+              plan_json: shortCircuit as any,
+              plan_message: shortCircuit.message,
+              plan_actions_count: shortCircuit.actions.length,
+              plan_model: "shortcircuit",
+              plan_latency_ms: 0,
+            })
+            .eq("id", turnId)
+            .eq("user_id", user.id);
+        }
+
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          session_id: sessionId,
+          correlation_id: correlationId,
+          event_type: "assistant.plan.shortcircuit",
+          source: "server",
+          ts: new Date().toISOString(),
+          privacy_level: "standard",
+          payload: {
+            turn_id: turnId,
+            actions_count: shortCircuit.actions.length,
+            kind: "mic_check",
+          },
+        });
+      } catch {
+        // ignore
+      }
+
+      return NextResponse.json({ success: true, data: shortCircuit, meta: { sessionId, turnId } });
     }
 
     const models = {
