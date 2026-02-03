@@ -20,6 +20,10 @@ function getSupabaseAnonKey() {
   return value;
 }
 
+let browserClient: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createClient() {
-  return createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey());
+  if (browserClient) return browserClient;
+  browserClient = createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey());
+  return browserClient;
 }

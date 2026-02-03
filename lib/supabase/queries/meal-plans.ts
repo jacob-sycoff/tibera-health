@@ -185,7 +185,7 @@ export async function getPlannedMealsByDateRange(
   if (plansError) throw plansError;
   if (!plans || plans.length === 0) return [];
 
-  const planIds = plans.map(p => p.id);
+  const planIds = plans.map((p: any) => p.id);
 
   // Then get planned meals for those plans within the date range
   const { data, error } = await supabase

@@ -1191,7 +1191,7 @@ export function AssistantLauncher() {
         if (action.type === "log_symptom") {
           const list = symptomsList.data ?? [];
           const target = normalizeName(action.data.symptom);
-          const match = list.find((s) => normalizeName((s as any).name) === target) as any | undefined;
+          const match = list.find((s: any) => normalizeName((s as any).name) === target) as any | undefined;
           const symptomId =
             match?.id ??
             (await createCustomSymptom.mutateAsync({ name: action.data.symptom.trim(), category: "other" })).id;
@@ -1207,7 +1207,7 @@ export function AssistantLauncher() {
         if (action.type === "log_supplement") {
           const list = supplementsList.data ?? [];
           const target = normalizeName(action.data.supplement);
-          const match = list.find((s) => normalizeName((s as any).name) === target) as any | undefined;
+          const match = list.find((s: any) => normalizeName((s as any).name) === target) as any | undefined;
 
           await createSupplementLog.mutateAsync({
             supplement_id: match?.id,

@@ -175,7 +175,7 @@ export default function SettingsPage() {
   }, [goalsData]);
 
   // Get active condition codes from user conditions
-  const activeConditionCodes = useMemo(() => {
+  const activeConditionCodes = useMemo<string[]>(() => {
     if (!userConditions || userConditions.length === 0) return ["none"];
     return userConditions.map((uc: DatabaseUserHealthCondition) => uc.condition_code);
   }, [userConditions]);

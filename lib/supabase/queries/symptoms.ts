@@ -205,11 +205,11 @@ export async function getSymptomStats(days: number = 7) {
     };
   }
 
-  const totalSeverity = data.reduce((sum, log) => sum + log.severity, 0);
+  const totalSeverity = data.reduce((sum: number, log: any) => sum + log.severity, 0);
 
   // Count by symptom
   const symptomCounts: Record<string, { count: number; name: string; totalSeverity: number }> = {};
-  data.forEach(log => {
+  data.forEach((log: any) => {
     const symptomId = log.symptom_id;
     const symptomName = log.symptom?.name ?? 'Unknown';
     if (!symptomCounts[symptomId]) {

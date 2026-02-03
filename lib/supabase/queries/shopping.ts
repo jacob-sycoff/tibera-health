@@ -332,7 +332,7 @@ export async function generateShoppingListFromPlan(
     throw new Error('No meal plans found');
   }
 
-  const planIds = plans.map(p => p.id);
+  const planIds = plans.map((p: any) => p.id);
 
   const { data: plannedMeals, error: mealsError } = await supabase
     .from('planned_meals')

@@ -184,11 +184,11 @@ export async function getSleepStats(days: number = 7) {
     };
   }
 
-  const totalDuration = data.reduce((sum, log) => sum + (log.duration_minutes ?? 0), 0);
-  const totalQuality = data.reduce((sum, log) => sum + parseInt(log.quality), 0);
+  const totalDuration = data.reduce((sum: number, log: any) => sum + (log.duration_minutes ?? 0), 0);
+  const totalQuality = data.reduce((sum: number, log: any) => sum + parseInt(log.quality), 0);
 
   const factorCounts: Record<string, number> = {};
-  data.forEach(log => {
+  data.forEach((log: any) => {
     (log.factors ?? []).forEach((factor: string) => {
       factorCounts[factor] = (factorCounts[factor] || 0) + 1;
     });

@@ -584,7 +584,7 @@ export async function getSupplementStats(days: number = 7) {
 
   // Count by supplement
   const supplementCounts: Record<string, number> = {};
-  data.forEach(log => {
+  data.forEach((log: any) => {
     const name = log.supplement_name;
     supplementCounts[name] = (supplementCounts[name] || 0) + 1;
   });
