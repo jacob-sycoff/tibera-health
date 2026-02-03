@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils/cn";
 import { planAssistantActions, type AssistantPlan } from "@/lib/api/assistant";
 import { conversationV2, type AssistantV2Response } from "@/lib/api/assistant-v2";
+import { conversationV3, type AssistantV3Response } from "@/lib/api/assistant-v3";
 import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
 import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { FoodSearch } from "@/components/food/food-search";
@@ -325,7 +326,7 @@ export function AssistantLauncher() {
   const supplementsList = useSupplementsList();
 
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"chat" | "conversation" | "conversation_v2">("conversation");
+  const [mode, setMode] = useState<"chat" | "conversation" | "conversation_v2" | "conversation_v3">("conversation");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -1339,11 +1340,22 @@ export function AssistantLauncher() {
       const existingActions = uiActionsToPlanActions(actionsRef.current);
 
       const isV2 = mode === "conversation_v2";
+      const isV3 = mode === "conversation_v3";
       const result = isV2
         ? await conversationV2({
             text,
             history,
             existingActions: existingActions as unknown as AssistantV2Response["actions"],
+            sessionId,
+            correlationId,
+            inputSource: source,
+            mode,
+          })
+        : isV3
+        ? await conversationV3({
+            text,
+            history,
+            existingActions: existingActions as unknown as AssistantV3Response["actions"],
             sessionId,
             correlationId,
             inputSource: source,
@@ -1373,14 +1385,16 @@ export function AssistantLauncher() {
       }
 
       const v2Data = (isV2 ? (result.data as any) : null) as AssistantV2Response | null;
+      const v3Data = (isV3 ? (result.data as any) : null) as AssistantV3Response | null;
       assistantTurnIdRef.current = result.meta?.turnId ?? null;
       events.emit(
-        isV2 ? "assistant.v2.received" : "assistant.plan.received",
+        isV2 ? "assistant.v2.received" : isV3 ? "assistant.v3.received" : "assistant.plan.received",
         {
           correlation_id: correlationId,
           turn_id: assistantTurnIdRef.current,
           actions_count: (result.data as any).actions.length,
           ...(isV2 ? { intent: v2Data?.decision.intent, apply: v2Data?.decision.apply } : {}),
+          ...(isV3 ? { intent: v3Data?.decision.intent, apply: v3Data?.decision.apply } : {}),
         },
         { session_id: sessionId }
       );
@@ -1388,17 +1402,18 @@ export function AssistantLauncher() {
       const nextActions = planToUiActions(result.data);
       const applied = actionsRef.current.filter((a) => a.status === "applied");
 
-      if (isV2 && v2Data) {
-        const handling = v2Data.decision.action_handling;
+      const structured = (isV2 ? v2Data : isV3 ? v3Data : null) as (AssistantV2Response | AssistantV3Response) | null;
+      if ((isV2 || isV3) && structured) {
+        const handling = structured.decision.action_handling;
 
         if (handling === "keep") {
-          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
-          setPlanMessage(v2Data.message);
+          setMessages((prev) => [...prev, { role: "assistant", text: structured.message }]);
+          setPlanMessage(structured.message);
           setActions(actionsRef.current);
           setIsPlanning(false);
           if (handsFree) {
             void (async () => {
-              await speak(v2Data.message);
+              await speak(structured.message);
               listeningPurposeRef.current = "dictation";
               startListeningRef.current();
             })();
@@ -1409,14 +1424,14 @@ export function AssistantLauncher() {
         }
 
         if (handling === "clear") {
-          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
-          setPlanMessage(v2Data.message);
+          setMessages((prev) => [...prev, { role: "assistant", text: structured.message }]);
+          setPlanMessage(structured.message);
           setActions([...applied]);
           actionsRef.current = [...applied];
           setIsPlanning(false);
           if (handsFree) {
             void (async () => {
-              await speak(v2Data.message);
+              await speak(structured.message);
               listeningPurposeRef.current = "dictation";
               startListeningRef.current();
             })();
@@ -1428,14 +1443,14 @@ export function AssistantLauncher() {
 
         // "replace": if the model returned no actions, treat it as "no suggestions right now".
         if (nextActions.length === 0) {
-          setMessages((prev) => [...prev, { role: "assistant", text: v2Data.message }]);
-          setPlanMessage(v2Data.message);
+          setMessages((prev) => [...prev, { role: "assistant", text: structured.message }]);
+          setPlanMessage(structured.message);
           setActions([...applied]);
           actionsRef.current = [...applied];
           setIsPlanning(false);
           if (handsFree) {
             void (async () => {
-              await speak(v2Data.message);
+              await speak(structured.message);
               listeningPurposeRef.current = "dictation";
               startListeningRef.current();
             })();
@@ -1459,7 +1474,7 @@ export function AssistantLauncher() {
         if (mode !== "chat" && (handsFree || pendingVoiceConfirmRef.current)) {
           pendingVoiceConfirmRef.current = false;
           void (async () => {
-            if (isV2 && v2Data?.decision.apply === "auto") {
+            if ((isV2 && v2Data?.decision.apply === "auto") || (isV3 && v3Data?.decision.apply === "auto")) {
               setVoicePhase("applying");
               await speak(result.data.message);
               await applySelected();
@@ -1472,7 +1487,7 @@ export function AssistantLauncher() {
               return;
             }
 
-            if (isV2 && v2Data?.decision.apply === "none") {
+            if ((isV2 && v2Data?.decision.apply === "none") || (isV3 && v3Data?.decision.apply === "none")) {
               await speak(result.data.message);
               setVoicePhase("idle");
               if (handsFree && open) {
@@ -1676,6 +1691,22 @@ export function AssistantLauncher() {
               >
                 <Sparkles className="w-4 h-4" />
                 Conversation v2
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-1.5 text-sm font-medium transition-all",
+                  mode === "conversation_v3"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
+                )}
+                onClick={() => {
+                  stopListening();
+                  setMode("conversation_v3");
+                }}
+              >
+                <Sparkles className="w-4 h-4" />
+                Conversation v3
               </button>
             </div>
 
