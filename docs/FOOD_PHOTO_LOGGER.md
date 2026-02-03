@@ -70,9 +70,7 @@ If storing images/audio:
 
 Environment variables:
 - `OPENAI_API_KEY` (required)
-- Model overrides (optional):
-  - `OPENAI_MEAL_PHOTO_MODEL_CHEAP` (default: `gpt-4o-mini`)
-  - `OPENAI_MEAL_PHOTO_MODEL_STRONG` (default: `gpt-4o`)
+- Models are hardcoded in the app (no model env overrides).
 - `NEXT_PUBLIC_USDA_API_KEY` (optional, improves USDA lookup; demo key still works with limits)
 
 ## Next improvements (highest ROI)

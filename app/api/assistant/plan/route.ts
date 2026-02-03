@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { OPENAI_MODELS } from "@/lib/openai/models";
 
 const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
@@ -903,10 +904,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: shortCircuit, meta: { sessionId, turnId } });
     }
 
-    const models = {
-      cheap: process.env.OPENAI_ASSISTANT_MODEL_CHEAP || "gpt-4o-mini",
-      strong: process.env.OPENAI_ASSISTANT_MODEL_STRONG || "gpt-4o",
-    };
+    const models = OPENAI_MODELS.assistant;
 
     const startedAt = Date.now();
     let usedModel: string | null = null;

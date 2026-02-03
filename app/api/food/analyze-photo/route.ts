@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { OPENAI_MODELS } from "@/lib/openai/models";
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -214,10 +215,7 @@ export async function POST(request: NextRequest) {
     const { image, mimeType, note } = parsedBody.data;
 
     const mediaType = normalizeMimeType(mimeType);
-    const openAiModels = {
-      cheap: process.env.OPENAI_MEAL_PHOTO_MODEL_CHEAP || "gpt-4o-mini",
-      strong: process.env.OPENAI_MEAL_PHOTO_MODEL_STRONG || "gpt-4o",
-    };
+    const openAiModels = OPENAI_MODELS.mealPhoto;
 
     let extracted = await tryOpenAiExtraction({
       model: openAiModels.cheap,

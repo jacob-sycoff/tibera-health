@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { OPENAI_MODELS } from "@/lib/openai/models";
 
 const RequestSchema = z
   .object({
@@ -30,8 +31,8 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
   }
 
-  const model = parsed.data?.model || process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
-  const voice = parsed.data?.voice || process.env.OPENAI_REALTIME_VOICE || "marin";
+  const model = OPENAI_MODELS.realtime.model;
+  const voice = OPENAI_MODELS.realtime.voice;
 
   const sessionConfig = {
     session: {

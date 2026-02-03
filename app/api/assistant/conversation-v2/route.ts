@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { OPENAI_MODELS } from "@/lib/openai/models";
 
 const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
@@ -422,7 +423,7 @@ export async function POST(request: NextRequest) {
     }
 
     const startedAt = Date.now();
-    const model = process.env.OPENAI_ASSISTANT_V2_MODEL || "gpt-4o";
+    const model = OPENAI_MODELS.assistantV2;
     const planned = await tryOpenAiConversationV2({ model, text, nowIso, today, history, existingActions });
     if (!planned) {
       try {
