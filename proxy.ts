@@ -6,6 +6,8 @@ const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
+const APP_HOME = '/dashboard';
+
 const PUBLIC_ROUTES = new Set([
   '/',
   '/login',
@@ -108,7 +110,14 @@ export async function proxy(request: NextRequest) {
   // Authenticated user trying to access auth pages -> redirect to app
   if (user && AUTH_ROUTES.has(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = '/';
+    url.pathname = APP_HOME;
+    return NextResponse.redirect(url);
+  }
+
+  // Authenticated users shouldn't land on the marketing homepage.
+  if (user && pathname === '/') {
+    const url = request.nextUrl.clone();
+    url.pathname = APP_HOME;
     return NextResponse.redirect(url);
   }
 

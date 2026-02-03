@@ -61,7 +61,7 @@ export default function VerifyEmailPage() {
           {error}
         </p>
         <Link
-          href="/"
+          href="/dashboard"
           className="text-sm font-medium text-slate-900 dark:text-slate-200 hover:underline"
         >
           Go to dashboard
@@ -80,7 +80,7 @@ export default function VerifyEmailPage() {
         Your email has been verified. You&apos;re all set!
       </p>
       <Link
-        href="/"
+        href="/dashboard"
         className="inline-block py-2.5 px-6 rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold text-sm hover:bg-slate-800 dark:hover:bg-slate-200 transition"
       >
         Go to dashboard
