@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import type { NextRequest, NextResponse } from 'next/server';
 
 function requireEnv(name: string) {
   const value = process.env[name];
@@ -52,6 +53,37 @@ export async function createClient() {
       },
     },
   });
+}
+
+type CookieToSet = { name: string; value: string; options?: Parameters<NextResponse['cookies']['set']>[2] };
+
+export function createRouteClient(request: NextRequest) {
+  const supabaseUrl = getSupabaseUrl();
+  const supabaseAnonKey = getSupabaseAnonKey();
+  const cookiesToSet: CookieToSet[] = [];
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(nextCookiesToSet) {
+        cookiesToSet.push(...(nextCookiesToSet as CookieToSet[]));
+      },
+    },
+  });
+
+  return { supabase, cookiesToSet };
+}
+
+export function applyCookiesToResponse<T extends NextResponse>(
+  response: T,
+  cookiesToSet: CookieToSet[]
+) {
+  cookiesToSet.forEach(({ name, value, options }) => {
+    response.cookies.set(name, value, options);
+  });
+  return response;
 }
 
 export function createAdminClient() {

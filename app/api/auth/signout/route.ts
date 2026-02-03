@@ -1,18 +1,11 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { applyCookiesToResponse, createRouteClient } from '@/utils/supabase/server';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    let supabase;
-    try {
-      supabase = await createClient();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Server misconfigured';
-      console.error('[signout] supabase init error:', err);
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
+    const { supabase, cookiesToSet } = createRouteClient(request);
     await supabase.auth.signOut();
-    return NextResponse.json({ success: true });
+    return applyCookiesToResponse(NextResponse.json({ success: true }), cookiesToSet);
   } catch (err) {
     console.error('[signout] unexpected error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

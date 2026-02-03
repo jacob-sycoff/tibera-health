@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
-import { createClient, createAdminClient } from '@/utils/supabase/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { applyCookiesToResponse, createAdminClient, createRouteClient } from '@/utils/supabase/server';
 import { sendEmail } from '@/lib/email';
 import { buildVerificationEmail } from '@/lib/emails/templates';
 import { siteUrl } from '@/lib/env';
 import crypto from 'crypto';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const { email, password, displayName } = await request.json();
 
@@ -81,20 +81,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Sign the user in server-side
     try {
-      const supabase = await createClient();
+      // Sign the user in server-side (sets session cookies)
+      const { supabase, cookiesToSet } = createRouteClient(request);
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       if (signInError) {
         console.error('[register] sign-in error:', signInError);
       }
+
+      return applyCookiesToResponse(NextResponse.json({ success: true, userId }), cookiesToSet);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Server misconfigured';
       console.error('[register] supabase client init error:', err);
       return NextResponse.json({ error: message }, { status: 500 });
     }
-
-    return NextResponse.json({ success: true, userId });
   } catch (err) {
     console.error('[register] unexpected error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

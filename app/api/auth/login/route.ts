@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { applyCookiesToResponse, createRouteClient } from '@/utils/supabase/server';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();
 
@@ -12,33 +12,29 @@ export async function POST(request: Request) {
       );
     }
 
-    let supabase;
-    try {
-      supabase = await createClient();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Server misconfigured';
-      console.error('[login] supabase init error:', err);
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
+    const { supabase, cookiesToSet } = createRouteClient(request);
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
+      return applyCookiesToResponse(
+        NextResponse.json({ error: 'Invalid email or password' }, { status: 401 }),
+        cookiesToSet
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-      },
-    });
+    return applyCookiesToResponse(
+      NextResponse.json({
+        success: true,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+        },
+      }),
+      cookiesToSet
+    );
   } catch (err) {
     console.error('[login] unexpected error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
