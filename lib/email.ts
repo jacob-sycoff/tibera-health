@@ -6,8 +6,24 @@ interface SendEmailOptions {
   html: string;
 }
 
+function isValidEmailFrom(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  // Allow either a bare email, or "Name <email@domain>".
+  const bareEmail = /^[^<>\s]+@[^<>\s]+\.[^<>\s]+$/;
+  const angleAddr = /^.+<[^<>\s]+@[^<>\s]+\.[^<>\s]+>$/;
+  return bareEmail.test(trimmed) || angleAddr.test(trimmed);
+}
+
 export async function sendEmail({ to, subject, html }: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
   const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!isValidEmailFrom(emailFrom)) {
+    return {
+      success: false,
+      error: 'EMAIL_FROM must be a valid email or "Name <email@domain>"',
+    };
+  }
 
   if (!resendApiKey) {
     if (isProduction) {
