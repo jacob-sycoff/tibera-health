@@ -322,7 +322,14 @@ async function tryOpenAiConversationV2(args: {
       max_output_tokens: 1400,
       instructions: SYSTEM_PROMPT,
       input: `${userPrompt}${historyBlock}${existingActionsBlock}`,
-      response_format: { type: "json_schema", json_schema: RESPONSE_JSON_SCHEMA },
+      text: {
+        format: {
+          type: "json_schema",
+          name: RESPONSE_JSON_SCHEMA.name,
+          strict: RESPONSE_JSON_SCHEMA.strict,
+          schema: RESPONSE_JSON_SCHEMA.schema,
+        },
+      },
     }),
   });
 
