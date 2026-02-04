@@ -12,5 +12,10 @@ export const OPENAI_MODELS = {
     model: "gpt-realtime",
     voice: "marin",
   },
+  tts: {
+    model: "tts-1",
+    voice: "shimmer",
+  },
+  intentClassifier: "gpt-4.1-nano-2025-04-14",
 } as const;
 

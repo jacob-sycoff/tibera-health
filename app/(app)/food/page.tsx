@@ -16,6 +16,7 @@ import { getFoodDetails, smartSearchFoods, TRACKED_NUTRIENTS } from "@/lib/api/u
 import type { FoodNutrient } from "@/types";
 import type { MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
+import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
 
 // Calculate daily nutrient totals from Supabase meal logs
 function calculateDailyNutrients(meals: MealLog[]): Record<string, number> {
@@ -41,6 +42,74 @@ function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
   const result: Record<string, number> = {};
   for (const n of nutrients) result[n.nutrientId] = n.amount;
   return result;
+}
+
+function normalizeDoseUnit(raw: string | null | undefined): string {
+  return (raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9µμ\s-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function singularizeUnit(unit: string): string {
+  const u = normalizeDoseUnit(unit);
+  if (u === "capsules") return "capsule";
+  if (u === "tablets") return "tablet";
+  if (u === "softgels") return "softgel";
+  if (u === "gummies") return "gummy";
+  if (u === "servings") return "serving";
+  if (u.endsWith("ies") && u.length > 4) return `${u.slice(0, -3)}y`;
+  if (u.endsWith("s") && u.length > 2) return u.slice(0, -1);
+  return u;
+}
+
+function parseServingSizeText(raw: string | null | undefined): { count: number; unit: string } | null {
+  if (!raw) return null;
+  const trimmed = raw.split("(")[0].replace(/serving size[:]?/i, "").trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/(\d+(?:\.\d+)?)\s*([a-zA-Zµμ][a-zA-Zµμ\s-]{0,24})/);
+  if (!m) return null;
+  const count = Number(m[1]);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  const unit = singularizeUnit(m[2]);
+  if (!unit) return null;
+  return { count, unit };
+}
+
+function isNutrientAmountUnit(unitNorm: string): boolean {
+  // Units we want to treat as "direct nutrient amounts" when the user logs "400mg magnesium", etc.
+  return ["mg", "mcg", "µg", "μg", "g", "kcal", "iu", "cfu"].includes(unitNorm);
+}
+
+function supplementServingMultiplier(args: {
+  dosage: number;
+  loggedUnit: string | null | undefined;
+  servingSize: string | null | undefined;
+}): number | null {
+  const dosage = Number.isFinite(args.dosage) && args.dosage > 0 ? args.dosage : 1;
+  const loggedUnitNorm = singularizeUnit(args.loggedUnit || "");
+  const serving = parseServingSizeText(args.servingSize);
+
+  // If we don't know the serving size, only "serving" can be safely treated as a multiplier.
+  if (!serving) {
+    if (!loggedUnitNorm || loggedUnitNorm === "serving") return dosage;
+    return null;
+  }
+
+  // If the logged unit is itself a serving-size phrase ("2 capsules"), treat it as servings.
+  const loggedAsServingPhrase = parseServingSizeText(args.loggedUnit);
+  if (
+    loggedAsServingPhrase &&
+    loggedAsServingPhrase.unit === serving.unit &&
+    Math.abs(loggedAsServingPhrase.count - serving.count) < 1e-6
+  ) {
+    return dosage;
+  }
+
+  if (!loggedUnitNorm || loggedUnitNorm === "serving") return dosage;
+  if (loggedUnitNorm === serving.unit) return dosage / serving.count;
+  return null;
 }
 
 const MEAL_TYPE_LABELS: Record<MealType, string> = {
@@ -193,7 +262,7 @@ export default function FoodTrackerPage() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "nutrients">("all");
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localDateISO()
   );
   const [fixingItemId, setFixingItemId] = useState<string | null>(null);
   const [selectedNutrientId, setSelectedNutrientId] = useState<string | null>(null);
@@ -283,8 +352,29 @@ export default function FoodTrackerPage() {
 
         const amountPerServing = typeof matching.amount === "number" ? matching.amount : 0;
         const dosage = typeof log.dosage === "number" ? log.dosage : 1;
-        const amount = amountPerServing * dosage;
         const unit = (matching.unit || matching.nutrient?.unit || meta.unit || "").toString();
+
+        const loggedUnitNorm = singularizeUnit(log.unit);
+        const ingredientUnitNorm = singularizeUnit(unit);
+
+        // If the user logged an explicit nutrient amount ("400 mg magnesium"), treat it as the direct amount.
+        // This avoids incorrectly interpreting mg/mcg/etc as "servings".
+        if (loggedUnitNorm && loggedUnitNorm === ingredientUnitNorm && isNutrientAmountUnit(ingredientUnitNorm)) {
+          return {
+            key: log.id,
+            label: `Supplement · ${log.supplement_name}`,
+            amount: dosage,
+            unit,
+          };
+        }
+
+        const multiplier = supplementServingMultiplier({
+          dosage,
+          loggedUnit: log.unit,
+          servingSize: (supplement as any)?.serving_size,
+        });
+        if (multiplier == null) return null;
+        const amount = amountPerServing * multiplier;
 
         return {
           key: log.id,
@@ -316,16 +406,16 @@ export default function FoodTrackerPage() {
   };
 
   const navigateDate = (direction: number) => {
-    const date = new Date(selectedDate);
+    const date = parseISODateLocal(selectedDate);
     date.setDate(date.getDate() + direction);
-    setSelectedDate(date.toISOString().split("T")[0]);
+    setSelectedDate(localDateISO(date));
   };
 
   const isToday =
-    selectedDate === new Date().toISOString().split("T")[0];
+    selectedDate === localDateISO();
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = parseISODateLocal(dateStr);
     if (isToday) return "Today";
     return date.toLocaleDateString("en-US", {
       weekday: "short",
@@ -521,10 +611,7 @@ export default function FoodTrackerPage() {
                                   <p className="font-medium text-sm truncate text-slate-900 dark:text-slate-100">
                                     {item.custom_food_name || "Unknown food"}
                                   </p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    {item.servings} serving
-                                    {item.servings !== 1 ? "s" : ""}
-                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">×{item.servings}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-medium whitespace-nowrap text-slate-900 dark:text-slate-100">

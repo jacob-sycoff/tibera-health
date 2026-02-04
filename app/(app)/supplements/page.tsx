@@ -41,6 +41,7 @@ import type {
 } from "@/types/supplements";
 import { FORM_LABELS, SOURCE_LABELS } from "@/types/supplements";
 import { cn } from "@/lib/utils/cn";
+import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -133,14 +134,52 @@ interface DatabaseSupplementLog {
   supplement_name: string;
   dosage: number;
   unit: string;
+  dose_count?: number | null;
+  dose_unit?: string | null;
+  strength_amount?: number | null;
+  strength_unit?: string | null;
   logged_at: string;
   notes: string | null;
   supplement: DatabaseSupplement | null;
 }
 
+function normalizeUnitText(raw: string): string {
+  return (raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9µμ\s-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function singularizeDoseUnit(raw: string): string {
+  const u = normalizeUnitText(raw);
+  if (u === "capsules") return "capsule";
+  if (u === "tablets") return "tablet";
+  if (u === "pills") return "pill";
+  if (u === "softgels") return "softgel";
+  if (u === "gummies") return "gummy";
+  if (u === "servings") return "serving";
+  if (u.endsWith("ies") && u.length > 4) return `${u.slice(0, -3)}y`;
+  if (u.endsWith("s") && u.length > 2) return u.slice(0, -1);
+  return u;
+}
+
+function parseServingSizeText(raw: string | null | undefined): { count: number; unit: string } | null {
+  if (!raw) return null;
+  const trimmed = raw.split("(")[0].replace(/serving size[:]?/i, "").trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/(\d+(?:\.\d+)?)\s*([a-zA-Zµμ][a-zA-Zµμ\s-]{0,24})/);
+  if (!m) return null;
+  const count = Number(m[1]);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  const unit = singularizeDoseUnit(m[2]);
+  if (!unit) return null;
+  return { count, unit };
+}
+
 export default function SupplementsPage() {
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localDateISO()
   );
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDetailedSupplement, setSelectedDetailedSupplement] =
@@ -194,12 +233,12 @@ export default function SupplementsPage() {
   const toast = useToast();
 
   const navigateDate = (direction: number) => {
-    const date = new Date(selectedDate);
+    const date = parseISODateLocal(selectedDate);
     date.setDate(date.getDate() + direction);
-    setSelectedDate(date.toISOString().split("T")[0]);
+    setSelectedDate(localDateISO(date));
   };
 
-  const isToday = selectedDate === new Date().toISOString().split("T")[0];
+  const isToday = selectedDate === localDateISO();
 
   const availableTypes = Array.from(
     new Set(databaseSupplements.map((s) => s.type).filter(Boolean))
@@ -246,12 +285,15 @@ export default function SupplementsPage() {
 
   const handleLogDetailedSupplement = (supplement: DatabaseSupplement) => {
     const supplementName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
+    const serving = parseServingSizeText(supplement.serving_size);
     createLog.mutate(
       {
         supplement_id: supplement.id,
         supplement_name: supplementName,
         dosage: 1,
         unit: supplement.serving_size || "serving",
+        dose_count: serving?.count ?? null,
+        dose_unit: serving?.unit ?? null,
         notes: supplement.supplement_ingredients?.length
           ? `${supplement.supplement_ingredients.length} nutrients`
           : undefined,
@@ -270,12 +312,15 @@ export default function SupplementsPage() {
 
   const quickLog = (supplement: Pick<DatabaseSupplement, "id" | "name" | "brand" | "serving_size">) => {
     const supplementName = `${supplement.brand ? supplement.brand + " " : ""}${supplement.name}`;
+    const serving = parseServingSizeText(supplement.serving_size);
     createLog.mutate(
       {
         supplement_id: supplement.id,
         supplement_name: supplementName,
         dosage: 1,
         unit: supplement.serving_size || "serving",
+        dose_count: serving?.count ?? null,
+        dose_unit: serving?.unit ?? null,
       },
       {
         onSuccess: () => {
@@ -534,7 +579,7 @@ export default function SupplementsPage() {
             <span className="font-medium">
               {isToday
                 ? "Today"
-                : new Date(selectedDate).toLocaleDateString("en-US", {
+                : parseISODateLocal(selectedDate).toLocaleDateString("en-US", {
                     weekday: "short",
                     month: "short",
                     day: "numeric",
@@ -606,7 +651,15 @@ export default function SupplementsPage() {
                               )}
                             </div>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                              {log.dosage} {log.unit} at{" "}
+                              {(() => {
+                                const hasDose = log.dose_count != null && log.dose_unit;
+                                const doseText = hasDose ? `${log.dose_count} ${log.dose_unit}` : `${log.dosage} ${log.unit}`;
+                                const strengthText =
+                                  log.strength_amount != null && log.strength_unit
+                                    ? ` (${log.strength_amount} ${log.strength_unit})`
+                                    : "";
+                                return `${doseText}${strengthText} at `;
+                              })()}
                               {new Date(log.logged_at).toLocaleTimeString("en-US", {
                                 hour: "numeric",
                                 minute: "2-digit",

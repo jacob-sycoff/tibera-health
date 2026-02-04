@@ -15,10 +15,11 @@ import { useSleepStore, calculateDuration } from "@/lib/stores/sleep";
 import { useSymptomsStore } from "@/lib/stores/symptoms";
 import { useSupplementsStore } from "@/lib/stores/supplements";
 import { useEffectiveGoals, useUserHealthConditions } from "@/lib/hooks";
+import { localDateISO } from "@/lib/utils/dates";
 
 export default function Dashboard() {
   const [mounted, setMounted] = useState(false);
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDateISO();
 
   const { getMealsByDate } = useMealsStore();
   const { getSleepByDate, getSleepStats } = useSleepStore();

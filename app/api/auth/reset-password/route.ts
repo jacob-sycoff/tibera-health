@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     // Generate token
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days
 
     await admin.from('password_reset_tokens').insert({
       token,

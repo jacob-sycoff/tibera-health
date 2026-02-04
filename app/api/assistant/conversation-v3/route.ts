@@ -1,82 +1,29 @@
 /**
  * Assistant Conversation V3 API Route
  *
- * Similar to Conversation V2, but intended for more "voice-first" behavior.
- * This endpoint returns a single structured response that can either:
- * - Chat (no actions)
- * - Propose actions to log
- * - Ask one clarifying question while proposing partial actions
+ * Voice-first assistant that can create, edit, and delete health entries.
+ * Returns a structured response with actions and a decision envelope.
  *
  * POST /api/assistant/conversation-v3
+ * Body: { text, nowIso?, today?, history?, existingActions?, recentEntries? }
+ * Returns: { success, data?: AssistantV3Response, meta?: { sessionId, turnId }, error? }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
 import { OPENAI_MODELS } from "@/lib/openai/models";
+import {
+  ActionSchema,
+  AssistantV3ResponseSchema,
+  RecentEntrySchema,
+  RESPONSE_JSON_SCHEMA,
+  type AssistantV3Response,
+  type RecentEntry,
+} from "@/lib/assistant/action-schemas";
+import { CONVERSATION_V3_SYSTEM_PROMPT } from "@/lib/assistant/prompts";
 
 const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
-
-const MealItemSchema = z.object({
-  label: z.string().min(1),
-  usdaQuery: z.string().min(1),
-  gramsConsumed: z.number().positive().nullable().optional(),
-  servings: z.number().positive().nullable().optional(),
-  notes: z.string().optional(),
-});
-
-const ActionSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("log_meal"),
-    title: z.string().min(1),
-    confidence: z.number().min(0).max(1),
-    data: z.object({
-      date: DateSchema.nullable().optional(),
-      mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).nullable().optional(),
-      items: z.array(MealItemSchema).min(1),
-      notes: z.string().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("log_symptom"),
-    title: z.string().min(1),
-    confidence: z.number().min(0).max(1),
-    data: z.object({
-      symptom: z.string().min(1),
-      severity: z.number().int().min(1).max(10).nullable().optional(),
-      date: DateSchema.nullable().optional(),
-      time: TimeSchema.nullable().optional(),
-      notes: z.string().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("log_supplement"),
-    title: z.string().min(1),
-    confidence: z.number().min(0).max(1),
-    data: z.object({
-      supplement: z.string().min(1),
-      dosage: z.number().positive().nullable().optional(),
-      unit: z.string().min(1).nullable().optional(),
-      date: DateSchema.nullable().optional(),
-      time: TimeSchema.nullable().optional(),
-      notes: z.string().optional(),
-    }),
-  }),
-]);
-
-const AssistantV3ResponseSchema = z.object({
-  message: z.string().min(1),
-  actions: z.array(ActionSchema).max(12),
-  decision: z.object({
-    intent: z.enum(["log", "clarify", "chat"]),
-    apply: z.enum(["auto", "confirm", "none"]),
-    confidence: z.number().min(0).max(1),
-    action_handling: z.enum(["keep", "replace", "clear"]),
-  }),
-});
-
-type AssistantV3Response = z.infer<typeof AssistantV3ResponseSchema>;
 
 const RequestSchema = z
   .object({
@@ -86,7 +33,7 @@ const RequestSchema = z
     sessionId: z.string().uuid().optional(),
     correlationId: z.string().uuid().optional(),
     inputSource: z.enum(["typed", "speech"]).optional(),
-    mode: z.enum(["chat", "conversation", "conversation_v2", "conversation_v3"]).optional(),
+    mode: z.enum(["chat", "conversation_v3"]).optional(),
     history: z
       .array(
         z
@@ -99,109 +46,9 @@ const RequestSchema = z
       .max(16)
       .optional(),
     existingActions: z.array(ActionSchema).max(12).optional(),
+    recentEntries: z.array(RecentEntrySchema).max(30).optional(),
   })
   .strict();
-
-const SYSTEM_PROMPT = `You are the Tibera Health assistant (Conversation V3).
-
-You are voice-first, fast, and natural. You decide if this turn is:
-
-- chat: respond warmly and briefly, do not log. actions: []
-- log: propose structured actions for foods/symptoms/supplements mentioned
-- clarify: ask ONE targeted question while proposing partial actions
-
-Return ONLY valid JSON with:
-{
-  "message": "string",
-  "actions": [ ... ],
-  "decision": {
-    "intent": "log|clarify|chat",
-    "apply": "auto|confirm|none",
-    "confidence": 0-1,
-    "action_handling": "keep|replace|clear"
-  }
-}
-
-Guidance:
-- Mic checks / small talk => intent=chat, apply=none, action_handling=keep, actions=[]
-- Corrections to prior suggestions => update existingActions; action_handling=replace
-- If user cancels logging => intent=chat, apply=none, action_handling=clear, actions=[]
-- For symptoms with no severity, use 5.
-- For supplements with no dosage/unit, use dosage 1 and unit "serving".
-- For date/time: if missing, use null.
-- Never mention schemas/tools/IDs.`;
-
-// OpenAI JSON schema subset: no `oneOf` for `actions.items`. Use superset and validate with Zod after.
-const RESPONSE_JSON_SCHEMA: any = {
-  name: "assistant_conversation_v3",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["message", "actions", "decision"],
-    properties: {
-      message: { type: "string", minLength: 1 },
-      actions: {
-        type: "array",
-        maxItems: 12,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["type", "title", "confidence", "data"],
-          properties: {
-            type: { enum: ["log_meal", "log_symptom", "log_supplement"] },
-            title: { type: "string", minLength: 1 },
-            confidence: { type: "number", minimum: 0, maximum: 1 },
-            data: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                date: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-                time: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
-                notes: { type: "string" },
-                // meal
-                mealType: { type: ["string", "null"], enum: ["breakfast", "lunch", "dinner", "snack", null] },
-                items: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["label", "usdaQuery"],
-                    properties: {
-                      label: { type: "string", minLength: 1 },
-                      usdaQuery: { type: "string", minLength: 1 },
-                      gramsConsumed: { type: ["number", "null"], minimum: 0 },
-                      servings: { type: ["number", "null"], minimum: 0 },
-                      notes: { type: "string" },
-                    },
-                  },
-                },
-                // symptom
-                symptom: { type: "string" },
-                severity: { type: ["number", "null"], minimum: 1, maximum: 10 },
-                // supplement
-                supplement: { type: "string" },
-                dosage: { type: ["number", "null"], minimum: 0 },
-                unit: { type: ["string", "null"], minLength: 1 },
-              },
-            },
-          },
-        },
-      },
-      decision: {
-        type: "object",
-        additionalProperties: false,
-        required: ["intent", "apply", "confidence", "action_handling"],
-        properties: {
-          intent: { enum: ["log", "clarify", "chat"] },
-          apply: { enum: ["auto", "confirm", "none"] },
-          confidence: { type: "number", minimum: 0, maximum: 1 },
-          action_handling: { enum: ["keep", "replace", "clear"] },
-        },
-      },
-    },
-  },
-};
 
 function cleanJson(text: string): string {
   let jsonText = text.trim();
@@ -227,6 +74,91 @@ function extractResponsesText(payload: any): string | null {
   return null;
 }
 
+const REPAIR_INSTRUCTIONS = `You returned an invalid plan in the previous attempt.
+
+- If the user provided loggable information, you MUST return at least 1 action.
+- If you cannot create any action due to missing details, use intent="clarify", apply="none", and ask ONE targeted question.
+- Never set apply="auto" or apply="confirm" when returning zero actions.`;
+
+function ensureEndsWithQuestion(message: string, suffixQuestion: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) return suffixQuestion;
+  if (trimmed.includes("?")) return trimmed;
+  const cleaned = trimmed.replace(/[.!\s]+$/, "");
+  return `${cleaned} ${suffixQuestion}`.trim();
+}
+
+function normalizePlannedResponse(
+  planned: AssistantV3Response,
+  ctx: { existingActionsCount: number }
+): AssistantV3Response {
+  const existingCount = ctx.existingActionsCount;
+  const hasPlannedActions = planned.actions.length > 0;
+  const hasExistingActions = existingCount > 0;
+
+  const decision = { ...planned.decision };
+
+  // Keep apply aligned with intent.
+  if (decision.intent === "clarify") {
+    decision.apply = "none";
+  }
+  if (decision.intent === "chat") {
+    decision.apply = "none";
+  }
+
+  // If the model returned actions, "keep" would hide them client-side.
+  if (decision.action_handling === "keep" && hasPlannedActions) {
+    decision.action_handling = "replace";
+  }
+
+  // If the model is asking for confirmation, ensure it's a question.
+  let message = planned.message;
+  if (decision.apply === "confirm") {
+    message = ensureEndsWithQuestion(message, "Save it?");
+  }
+  if (decision.intent === "clarify") {
+    message = ensureEndsWithQuestion(message, "Which detail should I use?");
+  }
+
+  // If we're logging and we have actions, don't allow a no-op apply mode.
+  if (decision.intent === "log" && hasPlannedActions && decision.apply === "none") {
+    decision.apply = message.includes("?") ? "confirm" : "auto";
+  }
+
+  // No-op guard: if we have no actions and nothing to keep, force a single question.
+  if (!hasPlannedActions && !hasExistingActions && decision.intent !== "chat") {
+    return {
+      ...planned,
+      message: "What should I log?",
+      actions: [],
+      decision: { ...decision, intent: "clarify", apply: "none", action_handling: "keep", confidence: Math.min(0.5, decision.confidence) },
+    };
+  }
+
+  // Never promise "auto" if there is nothing to apply (unless we're keeping existing actions).
+  if (!hasPlannedActions && !hasExistingActions && decision.apply !== "none") {
+    return {
+      ...planned,
+      message: "What should I log?",
+      actions: [],
+      decision: { ...decision, intent: "clarify", apply: "none", action_handling: "keep", confidence: Math.min(0.5, decision.confidence) },
+    };
+  }
+
+  return { ...planned, message, decision };
+}
+
+function shouldRepairPlannedResponse(planned: AssistantV3Response, existingActionsCount: number): boolean {
+  const hasActions = planned.actions.length > 0;
+  const hasExisting = existingActionsCount > 0;
+  if (hasActions) return false;
+  if (hasExisting && planned.decision.action_handling === "keep") return false;
+  if (planned.decision.intent === "log") return true;
+  if (planned.decision.apply !== "none") return true;
+  if (planned.decision.intent === "clarify") return true;
+  return false;
+}
+
 async function tryOpenAiConversationV3(args: {
   model: string;
   text: string;
@@ -234,6 +166,8 @@ async function tryOpenAiConversationV3(args: {
   today?: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   existingActions?: AssistantV3Response["actions"];
+  recentEntries?: RecentEntry[];
+  extraInstructions?: string;
 }): Promise<AssistantV3Response> {
   const nowBlock = args.nowIso ? `\nCurrent time (ISO): ${args.nowIso}` : "";
   const todayBlock = args.today ? `\nToday's date: ${args.today}` : "";
@@ -252,6 +186,10 @@ async function tryOpenAiConversationV3(args: {
           2
         )}`
       : "";
+  const recentEntriesBlock =
+    args.recentEntries && args.recentEntries.length > 0
+      ? `\n\nRecent entries the user can edit or delete:\n${JSON.stringify(args.recentEntries, null, 2)}`
+      : "";
 
   const userPrompt = `User said:\n${args.text}${todayBlock}${nowBlock}\n\nReturn JSON only.`;
 
@@ -264,9 +202,11 @@ async function tryOpenAiConversationV3(args: {
     body: JSON.stringify({
       model: args.model,
       temperature: 0.2,
-      max_output_tokens: 1400,
-      instructions: SYSTEM_PROMPT,
-      input: `${userPrompt}${historyBlock}${existingActionsBlock}`,
+      max_output_tokens: 2000,
+      instructions: args.extraInstructions
+        ? `${CONVERSATION_V3_SYSTEM_PROMPT}\n\n${args.extraInstructions}`.trim()
+        : CONVERSATION_V3_SYSTEM_PROMPT,
+      input: `${userPrompt}${historyBlock}${existingActionsBlock}${recentEntriesBlock}`,
       text: {
         format: {
           type: "json_schema",
@@ -326,6 +266,7 @@ export async function POST(request: NextRequest) {
     const { text, nowIso, today } = parsedBody.data;
     const history = parsedBody.data.history;
     const existingActions = parsedBody.data.existingActions;
+    const recentEntries = parsedBody.data.recentEntries;
     const sessionId = parsedBody.data.sessionId ?? crypto.randomUUID();
     const correlationId = parsedBody.data.correlationId ?? crypto.randomUUID();
     const inputSource = parsedBody.data.inputSource ?? "typed";
@@ -357,12 +298,27 @@ export async function POST(request: NextRequest) {
     }
 
     const startedAt = Date.now();
-    // Use strong model for v3 by default (more agency/robustness).
     const model = OPENAI_MODELS.assistant.strong;
 
     let planned: AssistantV3Response;
+    let repaired = false;
     try {
-      planned = await tryOpenAiConversationV3({ model, text, nowIso, today, history, existingActions });
+      planned = await tryOpenAiConversationV3({ model, text, nowIso, today, history, existingActions, recentEntries });
+      const existingCount = existingActions?.length ?? 0;
+      if (shouldRepairPlannedResponse(planned, existingCount)) {
+        repaired = true;
+        planned = await tryOpenAiConversationV3({
+          model,
+          text,
+          nowIso,
+          today,
+          history,
+          existingActions,
+          recentEntries,
+          extraInstructions: REPAIR_INSTRUCTIONS,
+        });
+      }
+      planned = normalizePlannedResponse(planned, { existingActionsCount: existingCount });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Assistant v3 failed";
       try {
@@ -393,7 +349,7 @@ export async function POST(request: NextRequest) {
             plan_actions_count: planned.actions.length,
             plan_model: model,
             plan_latency_ms: latencyMs,
-            metadata: { version: "v3", decision: planned.decision },
+            metadata: { version: "v3", decision: planned.decision, repaired },
           })
           .eq("id", turnId)
           .eq("user_id", user.id);
@@ -408,4 +364,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Failed to respond. Please try again." }, { status: 500 });
   }
 }
-

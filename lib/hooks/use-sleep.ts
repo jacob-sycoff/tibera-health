@@ -14,6 +14,7 @@ import {
   deleteSleepLog,
   getSleepStats,
 } from '@/lib/supabase/queries';
+import { localDateISO } from '@/lib/utils/dates';
 
 // ============================================
 // SLEEP LOGS
@@ -120,6 +121,6 @@ export function useSleepStats(days: number = 7) {
 // ============================================
 
 export function useLastNightsSleep() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateISO();
   return useSleepLogByDate(today);
 }

@@ -14,6 +14,7 @@ import { FoodSearch } from "@/components/food/food-search";
 import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
 import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
+import { localDateISO } from "@/lib/utils/dates";
 
 type ResolvedItem = {
   key: string;
@@ -111,7 +112,7 @@ export default function LogFoodFromPhotoPage() {
 
   const [mounted, setMounted] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<MealType>("breakfast");
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(localDateISO());
 
   const [note, setNote] = useState("");
   const [isDictating, setIsDictating] = useState(false);
@@ -433,7 +434,7 @@ export default function LogFoodFromPhotoPage() {
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              max={new Date().toISOString().split("T")[0]}
+              max={localDateISO()}
               className="mt-1"
             />
           </div>

@@ -39,6 +39,7 @@ import {
 } from "@/lib/hooks";
 import type { SymptomSeverity, SymptomCategory } from "@/types";
 import { cn } from "@/lib/utils/cn";
+import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
 
 // Database types
 interface DatabaseSymptom {
@@ -108,13 +109,13 @@ function getLast7Days(): string[] {
   for (let i = 6; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
-    days.push(date.toISOString().split("T")[0]);
+    days.push(localDateISO(date));
   }
   return days;
 }
 
 export default function SymptomsPage() {
-  const todayISO = new Date().toISOString().split("T")[0];
+  const todayISO = localDateISO();
   const [selectedDate, setSelectedDate] = useState(
     todayISO
   );
@@ -236,9 +237,9 @@ export default function SymptomsPage() {
   const isToday = selectedDate === todayISO;
 
   const navigateDate = (direction: number) => {
-    const date = new Date(selectedDate);
+    const date = parseISODateLocal(selectedDate);
     date.setDate(date.getDate() + direction);
-    setSelectedDate(date.toISOString().split("T")[0]);
+    setSelectedDate(localDateISO(date));
   };
 
   const handleSelectSymptom = (symptom: DatabaseSymptom) => {
@@ -376,7 +377,7 @@ export default function SymptomsPage() {
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
                   {isToday
                     ? "Today"
-                    : new Date(selectedDate).toLocaleDateString("en-US", {
+                    : parseISODateLocal(selectedDate).toLocaleDateString("en-US", {
                         weekday: "long",
                         month: "short",
                         day: "numeric",
@@ -599,7 +600,7 @@ export default function SymptomsPage() {
                           title={`${day.count} symptoms`}
                         />
                         <span className="text-xs text-slate-500 dark:text-slate-400">
-                          {new Date(day.date).toLocaleDateString("en-US", { weekday: "narrow" })}
+                          {parseISODateLocal(day.date).toLocaleDateString("en-US", { weekday: "narrow" })}
                         </span>
                       </div>
                     );

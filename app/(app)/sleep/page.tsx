@@ -19,6 +19,7 @@ import {
 } from "@/lib/hooks";
 import type { SleepQuality, SleepFactor } from "@/types";
 import { cn } from "@/lib/utils/cn";
+import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
 
 // Database types
 interface DatabaseSleepLog {
@@ -72,7 +73,7 @@ function calculateDuration(bedtime: string, wakeTime: string): number {
 
 export default function SleepTrackerPage() {
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localDateISO()
   );
 
   // Form state
@@ -139,12 +140,12 @@ export default function SleepTrackerPage() {
   const minutes = duration % 60;
 
   const navigateDate = (direction: number) => {
-    const date = new Date(selectedDate);
+    const date = parseISODateLocal(selectedDate);
     date.setDate(date.getDate() + direction);
-    setSelectedDate(date.toISOString().split("T")[0]);
+    setSelectedDate(localDateISO(date));
   };
 
-  const isToday = selectedDate === new Date().toISOString().split("T")[0];
+  const isToday = selectedDate === localDateISO();
 
   const toggleFactor = (factor: SleepFactor) => {
     setFactors((prev) =>
@@ -202,7 +203,7 @@ export default function SleepTrackerPage() {
           <span className="font-medium text-slate-900 dark:text-slate-100">
             {isToday
               ? "Today"
-              : new Date(selectedDate).toLocaleDateString("en-US", {
+              : parseISODateLocal(selectedDate).toLocaleDateString("en-US", {
                   weekday: "short",
                   month: "short",
                   day: "numeric",
@@ -398,7 +399,7 @@ export default function SleepTrackerPage() {
                     >
                       <div>
                         <p className="font-medium text-slate-900 dark:text-slate-100">
-                          {new Date(log.date).toLocaleDateString("en-US", {
+                          {parseISODateLocal(log.date).toLocaleDateString("en-US", {
                             weekday: "short",
                             month: "short",
                             day: "numeric",

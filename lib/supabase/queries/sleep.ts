@@ -5,6 +5,7 @@
 
 import { supabase } from '../client';
 import { requireAuthUserId } from '../constants';
+import { localDateISO } from '../../utils/dates';
 
 // ============================================
 // TYPES
@@ -170,7 +171,7 @@ export async function getSleepStats(days: number = 7) {
     .from('sleep_logs')
     .select('*')
     .eq('user_id', userId)
-    .gte('date', startDate.toISOString().split('T')[0])
+    .gte('date', localDateISO(startDate))
     .order('date', { ascending: false });
 
   if (error) throw error;

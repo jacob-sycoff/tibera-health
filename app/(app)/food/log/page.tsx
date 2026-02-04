@@ -12,6 +12,7 @@ import { useCreateMealLog } from "@/lib/hooks/use-meals";
 import { getFoodDetails } from "@/lib/api/usda";
 import type { MealType, Food, FoodSearchResult, FoodNutrient } from "@/types";
 import { cn } from "@/lib/utils/cn";
+import { localDateISO } from "@/lib/utils/dates";
 
 // Transform USDA nutrients array to a key-value object for Supabase storage
 function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
@@ -34,7 +35,7 @@ export default function LogFoodPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<MealType>("breakfast");
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localDateISO()
   );
   const [items, setItems] = useState<Array<{ food: Food; servings: number }>>([]);
   const [loading, setLoading] = useState(false);
@@ -141,7 +142,7 @@ export default function LogFoodPage() {
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              max={new Date().toISOString().split("T")[0]}
+              max={localDateISO()}
               className="mt-1"
             />
           </div>

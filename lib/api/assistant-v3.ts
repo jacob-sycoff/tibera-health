@@ -1,82 +1,28 @@
 import { z } from "zod";
+import {
+  AssistantV3ResponseSchema,
+  type AssistantV3Response,
+  type RecentEntry,
+} from "@/lib/assistant/action-schemas";
+import { localDateISO } from "@/lib/utils/dates";
 
-const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
-
-const MealItemSchema = z.object({
-  label: z.string(),
-  usdaQuery: z.string(),
-  gramsConsumed: z.number().nullable().optional(),
-  servings: z.number().nullable().optional(),
-  notes: z.string().optional(),
-});
-
-const ActionSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("log_meal"),
-    title: z.string(),
-    confidence: z.number(),
-    data: z.object({
-      date: DateSchema.nullable().optional(),
-      mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]).nullable().optional(),
-      items: z.array(MealItemSchema),
-      notes: z.string().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("log_symptom"),
-    title: z.string(),
-    confidence: z.number(),
-    data: z.object({
-      symptom: z.string(),
-      severity: z.number().nullable().optional(),
-      date: DateSchema.nullable().optional(),
-      time: TimeSchema.nullable().optional(),
-      notes: z.string().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("log_supplement"),
-    title: z.string(),
-    confidence: z.number(),
-    data: z.object({
-      supplement: z.string(),
-      dosage: z.number().nullable().optional(),
-      unit: z.string().nullable().optional(),
-      date: DateSchema.nullable().optional(),
-      time: TimeSchema.nullable().optional(),
-      notes: z.string().optional(),
-    }),
-  }),
-]);
-
-const AssistantV3ResponseSchema = z.object({
-  message: z.string(),
-  actions: z.array(ActionSchema),
-  decision: z.object({
-    intent: z.enum(["log", "clarify", "chat"]),
-    apply: z.enum(["auto", "confirm", "none"]),
-    confidence: z.number(),
-    action_handling: z.enum(["keep", "replace", "clear"]),
-  }),
-});
-
-export type AssistantV3Response = z.infer<typeof AssistantV3ResponseSchema>;
+export type { AssistantV3Response };
 
 export async function conversationV3(args: {
   text: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   existingActions?: AssistantV3Response["actions"];
+  recentEntries?: RecentEntry[];
   sessionId?: string;
   inputSource?: "typed" | "speech";
   correlationId?: string;
-  mode?: "chat" | "conversation" | "conversation_v2" | "conversation_v3";
+  mode?: "chat" | "conversation_v3";
 }): Promise<
   | { success: true; data: AssistantV3Response; meta?: { sessionId?: string; turnId?: string } }
   | { success: false; error: string }
 > {
   const nowIso = new Date().toISOString();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
 
   const response = await fetch("/api/assistant/conversation-v3", {
     method: "POST",
@@ -87,6 +33,7 @@ export async function conversationV3(args: {
       today,
       history: args.history,
       existingActions: args.existingActions,
+      recentEntries: args.recentEntries,
       sessionId: args.sessionId,
       inputSource: args.inputSource,
       correlationId: args.correlationId,
@@ -117,4 +64,3 @@ export async function conversationV3(args: {
 
   return { success: true, data: outParsed.data, meta: parsed.data.meta };
 }
-

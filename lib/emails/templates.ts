@@ -66,7 +66,7 @@ export function buildVerificationEmail(link: string): string {
       <a href="${link}" style="color:#64748b;word-break:break-all;">${link}</a>
     </p>
     <p style="margin:16px 0 0;font-size:13px;color:#94a3b8;">
-      This link expires in 24 hours.
+      This link expires in 7 days.
     </p>
   `);
 }
@@ -84,7 +84,7 @@ export function buildPasswordResetEmail(link: string, name?: string): string {
       <a href="${link}" style="color:#64748b;word-break:break-all;">${link}</a>
     </p>
     <p style="margin:16px 0 0;font-size:13px;color:#94a3b8;">
-      This link expires in 1 hour. If you didn&rsquo;t request a password reset, you can ignore this email.
+      This link expires in 3 days. If you didn&rsquo;t request a password reset, you can ignore this email.
     </p>
   `);
 }

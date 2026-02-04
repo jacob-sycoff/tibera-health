@@ -38,7 +38,6 @@ export async function POST(req: Request): Promise<Response> {
     session: {
       type: "realtime",
       model,
-      audio: { output: { voice } },
     },
   };
 

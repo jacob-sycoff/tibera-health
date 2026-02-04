@@ -174,7 +174,8 @@ export async function getFoodDetails(fdcId: string): Promise<Food | null> {
 
     const data = (await response.json()) as unknown as USDAFoodItem;
 
-    const serving = normalizeServingSize(data.servingSize, data.servingSizeUnit);
+    const inferred = inferUnitPortionServing((data as unknown as { foodPortions?: unknown }).foodPortions);
+    const serving = inferred ?? normalizeServingSize(data.servingSize, data.servingSizeUnit);
 
     const labelNutrients = extractLabelNutrients(data as unknown);
 
@@ -199,6 +200,10 @@ export async function getFoodDetails(fdcId: string): Promise<Food | null> {
       brandOwner: data.brandOwner || data.brandName,
       servingSize: serving.size,
       servingSizeUnit: serving.unit,
+      householdServingFullText:
+        typeof (data as unknown as { householdServingFullText?: unknown }).householdServingFullText === "string"
+          ? ((data as unknown as { householdServingFullText: string }).householdServingFullText as string)
+          : inferred?.householdServingFullText,
       nutrients,
     };
 
@@ -265,6 +270,73 @@ function normalizeServingUnit(unit: string): string {
   if (normalized === "g" || normalized === "gram" || normalized === "grams" || normalized === "grm") return "g";
   if (normalized === "ml" || normalized === "mlt" || normalized === "milliliter" || normalized === "milliliters") return "ml";
   return unit;
+}
+
+function inferUnitPortionServing(
+  foodPortions: unknown
+): { size: number; unit: "g"; scaleToServing: number; householdServingFullText: string } | null {
+  if (!Array.isArray(foodPortions)) return null;
+
+  const UNIT_WORDS = [
+    "egg",
+    "eggs",
+    "pancake",
+    "pancakes",
+    "slice",
+    "slices",
+    "piece",
+    "pieces",
+    "cookie",
+    "cookies",
+    "cracker",
+    "crackers",
+    "chip",
+    "chips",
+    "pretzel",
+    "pretzels",
+    "gummy",
+    "gummies",
+    "nugget",
+    "nuggets",
+    "strip",
+    "strips",
+    "link",
+    "links",
+    "patty",
+    "patties",
+    "bar",
+    "bars",
+    "stick",
+    "sticks",
+    "cup",
+    "cups",
+    "tablespoon",
+    "tablespoons",
+    "teaspoon",
+    "teaspoons",
+    "scoop",
+    "scoops",
+  ] as const;
+
+  for (const p of foodPortions) {
+    if (!p || typeof p !== "object") continue;
+    const record = p as Record<string, unknown>;
+    const grams = typeof record.gramWeight === "number" && Number.isFinite(record.gramWeight) ? record.gramWeight : null;
+    const desc = typeof record.portionDescription === "string" ? record.portionDescription.trim() : "";
+    if (!grams || grams <= 0) continue;
+    if (!desc) continue;
+    if (/quantity not specified/i.test(desc)) continue;
+
+    const m = desc.toLowerCase().match(/^1\\s+([a-z]+)\\b/);
+    if (!m) continue;
+    const unitWord = m[1];
+    if (!UNIT_WORDS.includes(unitWord as any)) continue;
+    if (grams < 2 || grams > 400) continue;
+
+    return { size: grams, unit: "g", scaleToServing: grams / 100, householdServingFullText: desc };
+  }
+
+  return null;
 }
 
 function buildQueryVariants(query: string): string[] {

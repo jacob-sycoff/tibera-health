@@ -17,6 +17,9 @@ export interface MealItem {
   custom_food_name: string | null;
   custom_food_nutrients: Record<string, number> | null;
   servings: number;
+  grams_consumed?: number | null;
+  quantity_count?: number | null;
+  quantity_unit?: string | null;
   created_at: string;
   food?: {
     id: string;
@@ -132,6 +135,9 @@ export async function createMealLog(meal: {
     custom_food_name?: string;
     custom_food_nutrients?: Record<string, number>;
     servings: number;
+    grams_consumed?: number | null;
+    quantity_count?: number | null;
+    quantity_unit?: string | null;
   }>;
 }) {
   const userId = await requireAuthUserId();
@@ -161,6 +167,9 @@ export async function createMealLog(meal: {
           custom_food_name: item.custom_food_name,
           custom_food_nutrients: item.custom_food_nutrients,
           servings: item.servings,
+          grams_consumed: item.grams_consumed ?? null,
+          quantity_count: item.quantity_count ?? null,
+          quantity_unit: item.quantity_unit ?? null,
         }))
       );
 
@@ -223,6 +232,9 @@ export async function addMealItem(
     custom_food_name?: string;
     custom_food_nutrients?: Record<string, number>;
     servings: number;
+    grams_consumed?: number | null;
+    quantity_count?: number | null;
+    quantity_unit?: string | null;
   }
 ) {
   const { data, error } = await supabase

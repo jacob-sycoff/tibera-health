@@ -48,6 +48,7 @@ export interface Food {
   brandOwner?: string;
   servingSize: number;
   servingSizeUnit: string;
+  householdServingFullText?: string;
   nutrients: FoodNutrient[];
   category?: string;
 }
@@ -308,6 +309,12 @@ export interface USDAFoodItem {
   ingredients?: string;
   servingSize?: number;
   servingSizeUnit?: string;
+  householdServingFullText?: string;
+  foodPortions?: Array<{
+    gramWeight?: number;
+    portionDescription?: string;
+    modifier?: string;
+  }>;
   foodNutrients: USDAFoodNutrient[];
 }
 

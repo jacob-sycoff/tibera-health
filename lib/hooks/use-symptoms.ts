@@ -14,6 +14,7 @@ import {
   createCustomSymptom,
   getSymptomStats,
 } from '@/lib/supabase/queries';
+import { localDateISO } from '@/lib/utils/dates';
 
 // ============================================
 // SYMPTOM LOGS
@@ -117,6 +118,6 @@ export function useSymptomStats(days: number = 7) {
 // ============================================
 
 export function useTodaysSymptoms() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateISO();
   return useSymptomLogsByDate(today);
 }

@@ -21,6 +21,7 @@ import {
   reorderPillOrganizerItems,
 } from '@/lib/supabase/queries';
 import type { PillOrganizerItem } from '@/lib/supabase/queries/supplements';
+import { localDateISO } from '@/lib/utils/dates';
 
 // ============================================
 // SUPPLEMENT LOGS
@@ -160,7 +161,7 @@ export function useSupplementStats(days: number = 7) {
 // ============================================
 
 export function useTodaysSupplements() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateISO();
   return useSupplementLogsByDate(today);
 }
 

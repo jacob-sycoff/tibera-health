@@ -8,6 +8,7 @@
 
 import { supabase } from '../client';
 import { requireAuthUserId } from '../constants';
+import { localDateISO } from '../../utils/dates';
 
 // ============================================
 // PROFILE
@@ -217,7 +218,7 @@ export async function removeHealthCondition(conditionCode: string) {
 
   const { error } = await supabase
     .from('user_health_conditions')
-    .update({ ended_at: new Date().toISOString().split('T')[0] })
+    .update({ ended_at: localDateISO() })
     .eq('user_id', userId)
     .eq('condition_code', conditionCode);
 
@@ -230,7 +231,7 @@ export async function setHealthConditions(conditionCodes: string[]) {
   // End all current conditions
   await supabase
     .from('user_health_conditions')
-    .update({ ended_at: new Date().toISOString().split('T')[0] })
+    .update({ ended_at: localDateISO() })
     .eq('user_id', userId)
     .is('ended_at', null);
 

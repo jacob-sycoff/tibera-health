@@ -17,6 +17,10 @@ export interface SupplementLog {
   supplement_name: string;
   dosage: number;
   unit: string;
+  dose_count?: number | null;
+  dose_unit?: string | null;
+  strength_amount?: number | null;
+  strength_unit?: string | null;
   logged_at: string;
   notes: string | null;
   created_at: string;
@@ -124,6 +128,10 @@ export async function createSupplementLog(log: {
   supplement_name: string;
   dosage: number;
   unit: string;
+  dose_count?: number | null;
+  dose_unit?: string | null;
+  strength_amount?: number | null;
+  strength_unit?: string | null;
   logged_at?: string;
   notes?: string;
 }): Promise<SupplementLog> {
@@ -139,6 +147,10 @@ export async function createSupplementLog(log: {
       supplement_name: log.supplement_name,
       dosage: log.dosage,
       unit: log.unit,
+      dose_count: log.dose_count ?? null,
+      dose_unit: log.dose_unit ?? null,
+      strength_amount: log.strength_amount ?? null,
+      strength_unit: log.strength_unit ?? null,
       logged_at: log.logged_at ?? new Date().toISOString(),
       notes: log.notes,
     })
@@ -175,6 +187,10 @@ export async function updateSupplementLog(
   updates: {
     dosage?: number;
     unit?: string;
+    dose_count?: number | null;
+    dose_unit?: string | null;
+    strength_amount?: number | null;
+    strength_unit?: string | null;
     logged_at?: string;
     notes?: string;
   }

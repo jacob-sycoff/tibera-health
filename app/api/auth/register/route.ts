@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     // Generate verification token
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     await admin.from('email_verification_tokens').insert({
       token,

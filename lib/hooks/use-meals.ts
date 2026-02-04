@@ -17,6 +17,7 @@ import {
   type MealLog,
   type MealItem,
 } from '@/lib/supabase/queries';
+import { localDateISO } from '@/lib/utils/dates';
 
 // Re-export types for consumers
 export type { MealLog, MealItem };
@@ -136,6 +137,6 @@ export function useDeleteMealItem() {
 // ============================================
 
 export function useTodaysMeals() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateISO();
   return useMealLogsByDate(today);
 }
