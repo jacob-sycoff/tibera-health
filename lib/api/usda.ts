@@ -349,6 +349,13 @@ function buildQueryVariants(query: string): string[] {
     variants.add("oats cooked");
   }
 
+  // Generic "eggs" queries often incorrectly match egg whites/yolks first.
+  // Add a "whole egg" variant unless the user explicitly requested whites/yolks.
+  if (/\begg(s)?\b/i.test(query) && !/\b(white|whites|yolk|yolks|whole)\b/i.test(query)) {
+    variants.add("egg whole");
+    variants.add("egg, whole");
+  }
+
   const qLower = query.toLowerCase();
   if (/\btomato\b/.test(qLower) && /\bsoup\b/.test(qLower)) {
     variants.add("soup, tomato");
@@ -673,6 +680,28 @@ function scoreCandidate(query: string, candidate: FoodSearchResult): number {
       if (qSetAll.has(t)) continue;
       if (descSet.has(t)) mismatchPenalty -= Math.round(penalty * 0.6);
     }
+  }
+
+  // Egg-specific mismatch handling: for a generic "egg(s)" query, avoid egg whites/yolks unless explicitly requested.
+  if (qSetAll.has("egg")) {
+    const wantsWhite = qSetAll.has("white") || /\begg\s+white\b/i.test(query);
+    const wantsYolk = qSetAll.has("yolk") || /\begg\s+yolk\b/i.test(query);
+    const wantsWhole = qSetAll.has("whole") || /\begg\s+whole\b/i.test(query);
+
+    const hasWhite = descSet.has("white") && descSet.has("egg");
+    const hasYolk = descSet.has("yolk") && descSet.has("egg");
+    const hasWhole = descSet.has("whole") && descSet.has("egg");
+
+    if (!wantsWhite && hasWhite) mismatchPenalty -= 1200;
+    if (!wantsYolk && hasYolk) mismatchPenalty -= 900;
+
+    // If the user asked for whites/yolks, penalize whole-egg matches.
+    if ((wantsWhite || wantsYolk) && !hasWhite && wantsWhite) mismatchPenalty -= 600;
+    if ((wantsWhite || wantsYolk) && !hasYolk && wantsYolk) mismatchPenalty -= 600;
+    if ((wantsWhite || wantsYolk) && (hasWhole || (!hasWhite && !hasYolk))) mismatchPenalty -= 250;
+
+    // If the query is generic eggs, give a small nudge toward whole egg entries.
+    if (!wantsWhite && !wantsYolk && !wantsWhole && hasWhole && !hasWhite && !hasYolk) mismatchPenalty += 140;
   }
 
   // Brand-ish SR Legacy entries often start with "BRAND'S," (e.g. "CAMPBELL'S, Tomato Soup").
