@@ -439,14 +439,20 @@ export default function FoodTrackerPage() {
     return meals.filter((meal) => meal.meal_type === type);
   };
 
-  const applyFixSelection = async (args: { itemId: string; query: string; fdcId: string; remember: boolean }) => {
+  const applyFixSelection = async (args: {
+    itemId: string;
+    query: string;
+    fdcId: string;
+    remember: boolean;
+    updateName?: boolean;
+  }) => {
     const food = await getFoodDetails(args.fdcId);
     if (!food) return;
     updateMealItem.mutate({
       id: args.itemId,
       updates: {
-        custom_food_name: food.description,
         custom_food_nutrients: transformNutrients(food.nutrients),
+        ...(args.updateName ? { custom_food_name: food.description } : {}),
       },
     });
     if (args.remember) {
@@ -461,7 +467,7 @@ export default function FoodTrackerPage() {
     try {
       const override = await getFoodResolutionOverride(query).catch(() => null);
       if (override) {
-        await applyFixSelection({ itemId, query, fdcId: override, remember: true });
+        await applyFixSelection({ itemId, query, fdcId: override, remember: true, updateName: false });
         return;
       }
 
@@ -484,7 +490,7 @@ export default function FoodTrackerPage() {
       const nanoFdcId = nanoPick?.fdcId ?? null;
       const autoOk = nanoPick && nanoFdcId && nanoPick.confidence >= 0.92 && !nanoPick.needsUserConfirmation;
       if (autoOk) {
-        await applyFixSelection({ itemId, query, fdcId: nanoFdcId, remember: true });
+        await applyFixSelection({ itemId, query, fdcId: nanoFdcId, remember: true, updateName: false });
         return;
       }
       setFixModal({
@@ -562,6 +568,7 @@ export default function FoodTrackerPage() {
                       query: current.query,
                       fdcId: selectedFdcId,
                       remember: current.remember,
+                      updateName: false,
                     });
                   }}
                 >

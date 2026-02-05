@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { searchFoods } from "@/lib/api/usda";
+import { smartSearchFoods } from "@/lib/api/usda";
 import type { FoodSearchResult } from "@/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -26,7 +26,7 @@ export function FoodSearch({ onSelect, className }: FoodSearchProps) {
 
     setLoading(true);
     try {
-      const foods = await searchFoods(searchQuery);
+      const foods = await smartSearchFoods(searchQuery, 18);
       setResults(foods);
       setShowResults(true);
     } catch (error) {
