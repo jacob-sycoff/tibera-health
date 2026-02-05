@@ -17,5 +17,5 @@ export const OPENAI_MODELS = {
     voice: "shimmer",
   },
   intentClassifier: "gpt-4.1-nano-2025-04-14",
+  usdaReranker: "gpt-4.1-nano-2025-04-14",
 } as const;
-

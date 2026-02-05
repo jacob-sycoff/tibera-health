@@ -10,13 +10,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NutrientBar } from "@/components/charts/nutrient-bar";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle } from "@/components/ui/modal";
 import { useMealLogsByDate, useDeleteMealItem, useUpdateMealItem, type MealLog } from "@/lib/hooks/use-meals";
 import { useEffectiveGoals, useSupplementLogsByDate } from "@/lib/hooks";
 import { getFoodDetails, smartSearchFoods, TRACKED_NUTRIENTS } from "@/lib/api/usda";
+import { rerankUsdaCandidates } from "@/lib/api/usda-rerank";
 import type { FoodNutrient } from "@/types";
 import type { MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
 import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
+import { getFoodResolutionOverride, upsertFoodResolutionOverride } from "@/lib/supabase/queries";
 
 // Calculate daily nutrient totals from Supabase meal logs
 function calculateDailyNutrients(meals: MealLog[]): Record<string, number> {
@@ -265,6 +268,14 @@ export default function FoodTrackerPage() {
     localDateISO()
   );
   const [fixingItemId, setFixingItemId] = useState<string | null>(null);
+  const [fixModal, setFixModal] = useState<{
+    open: boolean;
+    itemId: string;
+    query: string;
+    candidates: Array<{ fdcId: string; description: string; brandOwner?: string; dataType?: string }>;
+    selectedFdcId: string | null;
+    remember: boolean;
+  } | null>(null);
   const [selectedNutrientId, setSelectedNutrientId] = useState<string | null>(null);
 
   const { data: meals = [], isLoading } = useMealLogsByDate(selectedDate);
@@ -428,21 +439,66 @@ export default function FoodTrackerPage() {
     return meals.filter((meal) => meal.meal_type === type);
   };
 
+  const applyFixSelection = async (args: { itemId: string; query: string; fdcId: string; remember: boolean }) => {
+    const food = await getFoodDetails(args.fdcId);
+    if (!food) return;
+    updateMealItem.mutate({
+      id: args.itemId,
+      updates: {
+        custom_food_name: food.description,
+        custom_food_nutrients: transformNutrients(food.nutrients),
+      },
+    });
+    if (args.remember) {
+      await upsertFoodResolutionOverride(args.query, args.fdcId);
+    }
+  };
+
   const fixNutritionForItem = async (itemId: string, name: string) => {
-    if (!name.trim()) return;
+    const query = name.trim();
+    if (!query) return;
     setFixingItemId(itemId);
     try {
-      const results = await smartSearchFoods(name, 8);
-      const best = results[0];
-      if (!best) return;
-      const food = await getFoodDetails(best.fdcId);
-      if (!food) return;
-      updateMealItem.mutate({
-        id: itemId,
-        updates: {
-          custom_food_name: food.description,
-          custom_food_nutrients: transformNutrients(food.nutrients),
-        },
+      const override = await getFoodResolutionOverride(query).catch(() => null);
+      if (override) {
+        await applyFixSelection({ itemId, query, fdcId: override, remember: true });
+        return;
+      }
+
+      const results = await smartSearchFoods(query, 8);
+      if (results.length === 0) return;
+      const nanoPick = await rerankUsdaCandidates({
+        query,
+        candidates: results.map((r) => ({
+          fdcId: r.fdcId,
+          description: r.description,
+          dataType: r.dataType,
+          brandOwner: r.brandOwner,
+        })),
+      }).catch(() => null);
+      const suggested =
+        nanoPick?.fdcId && results.some((r) => r.fdcId === nanoPick.fdcId)
+          ? nanoPick.fdcId
+          : results[0]?.fdcId ?? null;
+
+      const nanoFdcId = nanoPick?.fdcId ?? null;
+      const autoOk = nanoPick && nanoFdcId && nanoPick.confidence >= 0.92 && !nanoPick.needsUserConfirmation;
+      if (autoOk) {
+        await applyFixSelection({ itemId, query, fdcId: nanoFdcId, remember: true });
+        return;
+      }
+      setFixModal({
+        open: true,
+        itemId,
+        query,
+        candidates: results.map((r) => ({
+          fdcId: r.fdcId,
+          description: r.description,
+          brandOwner: r.brandOwner,
+          dataType: r.dataType,
+        })),
+        selectedFdcId: suggested,
+        remember: true,
       });
     } finally {
       setFixingItemId(null);
@@ -453,6 +509,69 @@ export default function FoodTrackerPage() {
 
   return (
     <div className="space-y-6">
+      {fixModal?.open && (
+        <Modal open={true} onClose={() => setFixModal(null)}>
+          <ModalContent>
+            <ModalHeader>
+              <ModalTitle>Pick the best USDA match</ModalTitle>
+              <ModalDescription>{fixModal.query}</ModalDescription>
+            </ModalHeader>
+            <div className="space-y-2 max-h-[52vh] overflow-auto pr-1">
+              {fixModal.candidates.map((c) => (
+                <button
+                  key={c.fdcId}
+                  type="button"
+                  className={cn(
+                    "w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors",
+                    fixModal.selectedFdcId === c.fdcId
+                      ? "border-primary-600/40 bg-primary-600/10"
+                      : "border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5"
+                  )}
+                  onClick={() => setFixModal((prev) => (prev ? { ...prev, selectedFdcId: c.fdcId } : prev))}
+                >
+                  <div className="font-medium text-slate-900 dark:text-slate-100">{c.description}</div>
+                  <div className="text-xs text-slate-500">
+                    {(c.dataType || "Unknown").toString()}
+                    {c.brandOwner ? ` • ${c.brandOwner}` : ""}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={fixModal.remember}
+                  onChange={(e) => setFixModal((prev) => (prev ? { ...prev, remember: e.target.checked } : prev))}
+                />
+                Remember this choice
+              </label>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setFixModal(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!fixModal.selectedFdcId || updateMealItem.isPending}
+                  onClick={async () => {
+                    const selectedFdcId = fixModal.selectedFdcId;
+                    if (!selectedFdcId) return;
+                    const current = fixModal;
+                    setFixModal(null);
+                    await applyFixSelection({
+                      itemId: current.itemId,
+                      query: current.query,
+                      fdcId: selectedFdcId,
+                      remember: current.remember,
+                    });
+                  }}
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+          </ModalContent>
+        </Modal>
+      )}
       {/* Header */}
       <PageHeader
         title="Food Tracker"

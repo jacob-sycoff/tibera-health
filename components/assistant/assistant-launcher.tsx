@@ -11,11 +11,12 @@ import { cn } from "@/lib/utils/cn";
 import { conversationV3, type AssistantV3Response } from "@/lib/api/assistant-v3";
 import { classifyIntent } from "@/lib/api/classify-intent";
 import { getFoodDetails, smartSearchFoods } from "@/lib/api/usda";
+import { rerankUsdaCandidates } from "@/lib/api/usda-rerank";
 import { localDateISO } from "@/lib/utils/dates";
 import { OZ_TO_G, amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { FoodSearch } from "@/components/food/food-search";
 import { events } from "@/lib/events/client";
-import { getMealLogById } from "@/lib/supabase/queries";
+import { getFoodResolutionOverride, getMealLogById, upsertFoodResolutionOverride } from "@/lib/supabase/queries";
 import {
   useCreateCustomSymptom,
   useCreateMealLog,
@@ -2198,8 +2199,60 @@ export function AssistantLauncher() {
     if (!item) return;
 
     try {
+      const overrideQuery = item.usdaQuery.trim() || item.label.trim();
+      if (overrideQuery) {
+        const overrideFdcId = await getFoodResolutionOverride(overrideQuery).catch(() => null);
+        if (overrideFdcId) {
+          const food = await getFoodDetails(overrideFdcId).catch(() => null);
+          if (food) {
+            setActions((prev) =>
+              prev.map((a) => {
+                if (a.id !== actionId || (a.type !== "log_meal" && a.type !== "edit_meal")) return a;
+                return {
+                  ...a,
+                  data: {
+                    ...a.data,
+                    items: a.data.items.map((it) => {
+                      if (it.key !== itemKey) return it;
+                      const servingsAuto = servingsFromGrams(food, it.gramsConsumed);
+                      const candidate: FoodSearchResult = { fdcId: food.fdcId, description: food.description, score: 1 };
+                      return {
+                        ...it,
+                        candidates: [candidate, ...it.candidates.filter((c) => c.fdcId !== candidate.fdcId)],
+                        selectedCandidate: candidate,
+                        matchedFood: food,
+                        servings: servingsAuto != null ? roundServings(servingsAuto) : it.servings,
+                        isResolving: false,
+                        resolveError: undefined,
+                      };
+                    }),
+                  },
+                };
+              })
+            );
+            return;
+          }
+        }
+      }
+
       const sorted = await smartSearchFoods(item.usdaQuery, 18);
-      const { selectedCandidate, food } = await resolveFirstValidFood(sorted);
+      let candidates = sorted;
+      if (overrideQuery && sorted.length >= 2) {
+        const nano = await rerankUsdaCandidates({
+          query: overrideQuery,
+          candidates: sorted.map((c) => ({
+            fdcId: c.fdcId,
+            description: c.description,
+            dataType: c.dataType,
+            brandOwner: c.brandOwner,
+          })),
+        }).catch(() => null);
+        if (nano?.fdcId && sorted.some((c) => c.fdcId === nano.fdcId)) {
+          candidates = [sorted.find((c) => c.fdcId === nano.fdcId)!, ...sorted.filter((c) => c.fdcId !== nano.fdcId)];
+        }
+      }
+
+      const { selectedCandidate, food } = await resolveFirstValidFood(candidates);
 
       setActions((prev) =>
         prev.map((a) => {
@@ -3866,8 +3919,12 @@ export function AssistantLauncher() {
                                                   ? "border-primary-600/40 bg-primary-600/10"
                                                   : "border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5"
                                               )}
-                                              onClick={async () => {
+                                          onClick={async () => {
                                                 const food = await getFoodDetails(c.fdcId);
+                                                const overrideQuery = item.usdaQuery.trim() || item.label.trim();
+                                                if (overrideQuery) {
+                                                  void upsertFoodResolutionOverride(overrideQuery, c.fdcId).catch(() => {});
+                                                }
                                                 setActions((prev) =>
                                                   prev.map((a) => {
                                                     if (a.id !== action.id || (a.type !== "log_meal" && a.type !== "edit_meal")) return a;
@@ -3907,6 +3964,10 @@ export function AssistantLauncher() {
                                           <FoodSearch
                                             onSelect={async (selected) => {
                                               const food = await getFoodDetails(selected.fdcId);
+                                              const overrideQuery = item.usdaQuery.trim() || item.label.trim();
+                                              if (overrideQuery) {
+                                                void upsertFoodResolutionOverride(overrideQuery, selected.fdcId).catch(() => {});
+                                              }
                                               setActions((prev) =>
                                                 prev.map((a) => {
                                                   if (a.id !== action.id || (a.type !== "log_meal" && a.type !== "edit_meal")) return a;
