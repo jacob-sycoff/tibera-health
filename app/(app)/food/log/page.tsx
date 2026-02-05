@@ -13,6 +13,7 @@ import { getFoodDetails } from "@/lib/api/usda";
 import type { MealType, Food, FoodSearchResult, FoodNutrient } from "@/types";
 import { cn } from "@/lib/utils/cn";
 import { localDateISO } from "@/lib/utils/dates";
+import { insertFoodMatchAudit } from "@/lib/supabase/queries";
 
 // Transform USDA nutrients array to a key-value object for Supabase storage
 function transformNutrients(nutrients: FoodNutrient[]): Record<string, number> {
@@ -91,12 +92,38 @@ export default function LogFoodPage() {
         meal_type: selectedMealType,
         items: items.map((item) => ({
           custom_food_name: item.food.description,
+          original_food_name: item.food.description,
           custom_food_nutrients: transformNutrients(item.food.nutrients),
           servings: item.servings,
+          matched_fdc_id: item.food.fdcId,
+          matched_food_name: item.food.description,
+          matched_data_type: (item.food as any).dataType ?? null,
+          matched_brand_owner: item.food.brandOwner ?? null,
+          match_method: "manual_log",
+          match_confidence: 1,
+          match_context: null,
+          match_updated_at: new Date().toISOString(),
         })),
       },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
+          const mealItems = (data as any)?.meal_items as Array<any> | undefined;
+          if (Array.isArray(mealItems)) {
+            for (let i = 0; i < Math.min(mealItems.length, items.length); i++) {
+              const mi = mealItems[i];
+              const ui = items[i];
+              if (!mi?.id) continue;
+              void insertFoodMatchAudit({
+                mealItemId: mi.id,
+                source: "manual_log",
+                queryText: ui.food.description,
+                queryNorm: null,
+                candidates: null,
+                selected: { fdcId: ui.food.fdcId, description: ui.food.description, brandOwner: ui.food.brandOwner ?? null },
+                model: null,
+              }).catch(() => {});
+            }
+          }
           router.push("/food");
         },
         onError: (error) => {

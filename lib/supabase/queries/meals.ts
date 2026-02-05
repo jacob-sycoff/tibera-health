@@ -15,11 +15,20 @@ export interface MealItem {
   meal_log_id: string;
   food_id: string | null;
   custom_food_name: string | null;
+  original_food_name?: string | null;
   custom_food_nutrients: Record<string, number> | null;
   servings: number;
   grams_consumed?: number | null;
   quantity_count?: number | null;
   quantity_unit?: string | null;
+  matched_fdc_id?: string | null;
+  matched_food_name?: string | null;
+  matched_data_type?: string | null;
+  matched_brand_owner?: string | null;
+  match_method?: string | null;
+  match_confidence?: number | null;
+  match_context?: unknown | null;
+  match_updated_at?: string | null;
   created_at: string;
   food?: {
     id: string;
@@ -133,11 +142,20 @@ export async function createMealLog(meal: {
   items: Array<{
     food_id?: string;
     custom_food_name?: string;
+    original_food_name?: string | null;
     custom_food_nutrients?: Record<string, number>;
     servings: number;
     grams_consumed?: number | null;
     quantity_count?: number | null;
     quantity_unit?: string | null;
+    matched_fdc_id?: string | null;
+    matched_food_name?: string | null;
+    matched_data_type?: string | null;
+    matched_brand_owner?: string | null;
+    match_method?: string | null;
+    match_confidence?: number | null;
+    match_context?: unknown | null;
+    match_updated_at?: string | null;
   }>;
 }) {
   const userId = await requireAuthUserId();
@@ -165,11 +183,20 @@ export async function createMealLog(meal: {
           meal_log_id: mealLog.id,
           food_id: item.food_id,
           custom_food_name: item.custom_food_name,
+          original_food_name: item.original_food_name ?? item.custom_food_name ?? null,
           custom_food_nutrients: item.custom_food_nutrients,
           servings: item.servings,
           grams_consumed: item.grams_consumed ?? null,
           quantity_count: item.quantity_count ?? null,
           quantity_unit: item.quantity_unit ?? null,
+          matched_fdc_id: item.matched_fdc_id ?? null,
+          matched_food_name: item.matched_food_name ?? null,
+          matched_data_type: item.matched_data_type ?? null,
+          matched_brand_owner: item.matched_brand_owner ?? null,
+          match_method: item.match_method ?? null,
+          match_confidence: item.match_confidence ?? null,
+          match_context: (item.match_context as any) ?? null,
+          match_updated_at: item.match_updated_at ?? null,
         }))
       );
 
@@ -230,11 +257,20 @@ export async function addMealItem(
   item: {
     food_id?: string;
     custom_food_name?: string;
+    original_food_name?: string | null;
     custom_food_nutrients?: Record<string, number>;
     servings: number;
     grams_consumed?: number | null;
     quantity_count?: number | null;
     quantity_unit?: string | null;
+    matched_fdc_id?: string | null;
+    matched_food_name?: string | null;
+    matched_data_type?: string | null;
+    matched_brand_owner?: string | null;
+    match_method?: string | null;
+    match_confidence?: number | null;
+    match_context?: unknown | null;
+    match_updated_at?: string | null;
   }
 ) {
   const { data, error } = await supabase
@@ -242,6 +278,7 @@ export async function addMealItem(
     .insert({
       meal_log_id: mealLogId,
       ...item,
+      original_food_name: item.original_food_name ?? item.custom_food_name ?? null,
     })
     .select()
     .single();
@@ -256,6 +293,14 @@ export async function updateMealItem(
     servings?: number;
     custom_food_name?: string | null;
     custom_food_nutrients?: Record<string, number> | null;
+    matched_fdc_id?: string | null;
+    matched_food_name?: string | null;
+    matched_data_type?: string | null;
+    matched_brand_owner?: string | null;
+    match_method?: string | null;
+    match_confidence?: number | null;
+    match_context?: unknown | null;
+    match_updated_at?: string | null;
   }
 ) {
   const { data, error } = await supabase

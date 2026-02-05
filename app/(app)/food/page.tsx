@@ -20,6 +20,7 @@ import type { MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
 import { localDateISO, parseISODateLocal } from "@/lib/utils/dates";
 import { getFoodResolutionOverride, upsertFoodResolutionOverride } from "@/lib/supabase/queries";
+import { insertFoodMatchAudit } from "@/lib/supabase/queries";
 
 // Calculate daily nutrient totals from Supabase meal logs
 function calculateDailyNutrients(meals: MealLog[]): Record<string, number> {
@@ -445,6 +446,8 @@ export default function FoodTrackerPage() {
     fdcId: string;
     remember: boolean;
     updateName?: boolean;
+    candidates?: Array<{ fdcId: string; description: string; dataType?: string; brandOwner?: string }> | null;
+    nanoPick?: { fdcId: string | null; confidence: number; needsUserConfirmation: boolean } | null;
   }) => {
     const food = await getFoodDetails(args.fdcId);
     if (!food) return;
@@ -452,12 +455,34 @@ export default function FoodTrackerPage() {
       id: args.itemId,
       updates: {
         custom_food_nutrients: transformNutrients(food.nutrients),
+        matched_fdc_id: args.fdcId,
+        matched_food_name: food.description,
+        matched_data_type: (args.candidates?.find((c) => c.fdcId === args.fdcId)?.dataType ?? null) as any,
+        matched_brand_owner: (args.candidates?.find((c) => c.fdcId === args.fdcId)?.brandOwner ?? null) as any,
+        match_method: args.nanoPick?.fdcId ? "recompute_nano" : "recompute_manual",
+        match_confidence: args.nanoPick?.confidence ?? null,
+        match_context: {
+          query: args.query,
+          candidates: args.candidates ?? null,
+          nano: args.nanoPick ?? null,
+        },
+        match_updated_at: new Date().toISOString(),
         ...(args.updateName ? { custom_food_name: food.description } : {}),
       },
     });
     if (args.remember) {
       await upsertFoodResolutionOverride(args.query, args.fdcId);
     }
+    // Best-effort audit trail for later analysis/training. Ignore failures (e.g. RLS/migration not applied yet).
+    void insertFoodMatchAudit({
+      mealItemId: args.itemId,
+      source: "recompute",
+      queryText: args.query,
+      queryNorm: null,
+      candidates: args.candidates ?? null,
+      selected: { fdcId: args.fdcId, description: food.description },
+      model: args.nanoPick ?? null,
+    }).catch(() => {});
   };
 
   const fixNutritionForItem = async (itemId: string, name: string) => {
@@ -467,20 +492,36 @@ export default function FoodTrackerPage() {
     try {
       const override = await getFoodResolutionOverride(query).catch(() => null);
       if (override) {
-        await applyFixSelection({ itemId, query, fdcId: override, remember: true, updateName: false });
+        const candidates = await smartSearchFoods(query, 8).catch(() => []);
+        const candidateBlock = candidates.map((r) => ({
+          fdcId: r.fdcId,
+          description: r.description,
+          dataType: r.dataType,
+          brandOwner: r.brandOwner,
+        }));
+        await applyFixSelection({
+          itemId,
+          query,
+          fdcId: override,
+          remember: true,
+          updateName: false,
+          candidates: candidateBlock,
+          nanoPick: null,
+        });
         return;
       }
 
       const results = await smartSearchFoods(query, 8);
       if (results.length === 0) return;
+      const candidateBlock = results.map((r) => ({
+        fdcId: r.fdcId,
+        description: r.description,
+        dataType: r.dataType,
+        brandOwner: r.brandOwner,
+      }));
       const nanoPick = await rerankUsdaCandidates({
         query,
-        candidates: results.map((r) => ({
-          fdcId: r.fdcId,
-          description: r.description,
-          dataType: r.dataType,
-          brandOwner: r.brandOwner,
-        })),
+        candidates: candidateBlock,
       }).catch(() => null);
       const suggested =
         nanoPick?.fdcId && results.some((r) => r.fdcId === nanoPick.fdcId)
@@ -490,7 +531,15 @@ export default function FoodTrackerPage() {
       const nanoFdcId = nanoPick?.fdcId ?? null;
       const autoOk = nanoPick && nanoFdcId && nanoPick.confidence >= 0.92 && !nanoPick.needsUserConfirmation;
       if (autoOk) {
-        await applyFixSelection({ itemId, query, fdcId: nanoFdcId, remember: true, updateName: false });
+        await applyFixSelection({
+          itemId,
+          query,
+          fdcId: nanoFdcId,
+          remember: true,
+          updateName: false,
+          candidates: candidateBlock,
+          nanoPick,
+        });
         return;
       }
       setFixModal({
@@ -569,6 +618,8 @@ export default function FoodTrackerPage() {
                       fdcId: selectedFdcId,
                       remember: current.remember,
                       updateName: false,
+                      candidates: current.candidates,
+                      nanoPick: null,
                     });
                   }}
                 >

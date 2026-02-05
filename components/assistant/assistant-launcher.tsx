@@ -17,6 +17,7 @@ import { OZ_TO_G, amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/li
 import { FoodSearch } from "@/components/food/food-search";
 import { events } from "@/lib/events/client";
 import { getFoodResolutionOverride, getMealLogById, upsertFoodResolutionOverride } from "@/lib/supabase/queries";
+import { insertFoodMatchAudit } from "@/lib/supabase/queries";
 import {
   useCreateCustomSymptom,
   useCreateMealLog,
@@ -66,6 +67,7 @@ type UiMealItem = {
   candidates: FoodSearchResult[];
   selectedCandidate: FoodSearchResult | null;
   matchedFood: Food | null;
+  matchedByUser: boolean;
   isResolving: boolean;
   resolveError?: string;
   expanded: boolean;
@@ -900,6 +902,7 @@ function planToUiActions(plan: AssistantV3Response): UiAction[] {
         candidates: [],
         selectedCandidate: null,
         matchedFood: null,
+        matchedByUser: false,
         isResolving: false,
         expanded: false,
       }));
@@ -2157,11 +2160,24 @@ export function AssistantLauncher() {
           mealLogId,
           item: {
             custom_food_name,
+            original_food_name: custom_food_name,
             custom_food_nutrients,
             servings,
             grams_consumed: inferGramsConsumedFromQuantity(item),
             quantity_count: item.quantityCount ?? null,
             quantity_unit: item.quantityUnit ?? null,
+            matched_fdc_id: item.matchedFood?.fdcId ?? null,
+            matched_food_name: item.matchedFood?.description ?? null,
+            matched_data_type: item.selectedCandidate?.dataType ?? null,
+            matched_brand_owner: item.selectedCandidate?.brandOwner ?? item.matchedFood?.brandOwner ?? null,
+            match_method: item.matchedByUser ? "assistant_override" : "assistant_auto",
+            match_confidence: null,
+            match_context: {
+              usdaQuery: item.usdaQuery,
+              label: item.label,
+              selectedCandidate: item.selectedCandidate ?? null,
+            },
+            match_updated_at: new Date().toISOString(),
           },
         });
       }
@@ -2222,6 +2238,7 @@ export function AssistantLauncher() {
                         selectedCandidate: candidate,
                         matchedFood: food,
                         servings: servingsAuto != null ? roundServings(servingsAuto) : it.servings,
+                        matchedByUser: false,
                         isResolving: false,
                         resolveError: undefined,
                       };
@@ -2270,6 +2287,7 @@ export function AssistantLauncher() {
                   selectedCandidate,
                   matchedFood: food,
                   servings: servingsAuto != null ? roundServings(servingsAuto) : it.servings,
+                  matchedByUser: false,
                   isResolving: false,
                   resolveError: food ? undefined : "No USDA match found",
                 };
@@ -2584,17 +2602,57 @@ export function AssistantLauncher() {
               }
               return {
                 custom_food_name,
+                original_food_name: custom_food_name,
                 custom_food_nutrients,
                 servings,
                 grams_consumed: inferGramsConsumedFromQuantity(item),
                 quantity_count: item.quantityCount ?? null,
                 quantity_unit: item.quantityUnit ?? null,
+                matched_fdc_id: item.matchedFood?.fdcId ?? null,
+                matched_food_name: item.matchedFood?.description ?? null,
+                matched_data_type: item.selectedCandidate?.dataType ?? null,
+                matched_brand_owner: item.selectedCandidate?.brandOwner ?? item.matchedFood?.brandOwner ?? null,
+                match_method: item.matchedByUser ? "assistant_override" : "assistant_auto",
+                match_confidence: null,
+                match_context: {
+                  usdaQuery: item.usdaQuery,
+                  label: item.label,
+                  selectedCandidate: item.selectedCandidate ?? null,
+                },
+                match_updated_at: new Date().toISOString(),
               };
             }),
           });
           const entryId = (result as any)?.id as string | undefined;
           if (!entryId) throw new Error("Meal log did not return an id");
           captureEntryId(action.id, entryId);
+
+          // Best-effort: write match audits for each inserted meal item.
+          const dbItems = ((result as any)?.meal_items ?? []) as Array<any>;
+          if (Array.isArray(dbItems) && dbItems.length > 0) {
+            const uiItems = action.data.items;
+            for (let i = 0; i < Math.min(dbItems.length, uiItems.length); i++) {
+              const dbItem = dbItems[i];
+              const uiItem = uiItems[i];
+              if (!dbItem?.id) continue;
+              void insertFoodMatchAudit({
+                mealItemId: dbItem.id,
+                source: "assistant",
+                queryText: uiItem.usdaQuery || uiItem.label,
+                queryNorm: null,
+                candidates: uiItem.candidates ?? null,
+                selected: uiItem.matchedFood
+                  ? {
+                      fdcId: uiItem.matchedFood.fdcId,
+                      description: uiItem.matchedFood.description,
+                      dataType: uiItem.selectedCandidate?.dataType ?? null,
+                      brandOwner: uiItem.selectedCandidate?.brandOwner ?? uiItem.matchedFood.brandOwner ?? null,
+                    }
+                  : null,
+                model: null,
+              }).catch(() => {});
+            }
+          }
         }
 
         // ── Edit: meals ──
@@ -3925,28 +3983,29 @@ export function AssistantLauncher() {
                                                 if (overrideQuery) {
                                                   void upsertFoodResolutionOverride(overrideQuery, c.fdcId).catch(() => {});
                                                 }
-                                                setActions((prev) =>
-                                                  prev.map((a) => {
-                                                    if (a.id !== action.id || (a.type !== "log_meal" && a.type !== "edit_meal")) return a;
-                                                    return {
-                                                      ...a,
-                                                      data: {
-                                                        ...a.data,
-                                                        items: a.data.items.map((it) => {
-                                                          if (it.key !== item.key) return it;
-                                                          const auto = servingsFromGrams(food, it.gramsConsumed);
-                                                          return {
-                                                            ...it,
-                                                            selectedCandidate: c,
-                                                            matchedFood: food,
-                                                            servings: auto != null ? roundServings(auto) : it.servings,
-                                                            resolveError: food ? undefined : "No details for that USDA item",
-                                                          };
-                                                        }),
-                                                      },
-                                                    };
-                                                  })
-                                                );
+                                              setActions((prev) =>
+                                                prev.map((a) => {
+                                                  if (a.id !== action.id || (a.type !== "log_meal" && a.type !== "edit_meal")) return a;
+                                                  return {
+                                                    ...a,
+                                                    data: {
+                                                      ...a.data,
+                                                      items: a.data.items.map((it) => {
+                                                        if (it.key !== item.key) return it;
+                                                        const auto = servingsFromGrams(food, it.gramsConsumed);
+                                                        return {
+                                                          ...it,
+                                                          selectedCandidate: c,
+                                                          matchedFood: food,
+                                                          servings: auto != null ? roundServings(auto) : it.servings,
+                                                          matchedByUser: true,
+                                                          resolveError: food ? undefined : "No details for that USDA item",
+                                                        };
+                                                      }),
+                                                    },
+                                                  };
+                                                })
+                                              );
                                               }}
                                             >
                                               <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{c.description}</div>
@@ -3984,6 +4043,7 @@ export function AssistantLauncher() {
                                                           matchedFood: food,
                                                           candidates: [selected, ...it.candidates.filter((c) => c.fdcId !== selected.fdcId)],
                                                           servings: auto != null ? roundServings(auto) : it.servings,
+                                                          matchedByUser: true,
                                                           resolveError: food ? undefined : "No details for that USDA item",
                                                         };
                                                       }),

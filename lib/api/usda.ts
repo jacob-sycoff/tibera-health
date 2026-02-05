@@ -550,10 +550,12 @@ function coreQueryTokens(query: string): string[] {
 
 function looksLikeGenericIngredientQuery(query: string): boolean {
   if (/\bhomemade\b/i.test(query)) return true;
-  const core = coreQueryTokens(query);
+  // Treat measurement numbers as "quantity noise" so "steak 16 oz" is still a generic ingredient query.
+  const quantityStripped = query.replace(/\b\d+(?:\.\d+)?\s*(g|grams?|kg|kilograms?|oz|ounces?|lb|lbs|pounds?|ml|milliliters?)\b/gi, " ");
+  const core = coreQueryTokens(quantityStripped);
   if (core.length === 0) return true;
   if (core.length > 3) return false;
-  if (/[0-9]/.test(query)) return false;
+  if (/[0-9]/.test(quantityStripped)) return false;
   // If user explicitly asked for a prepared form, it's not a plain ingredient query.
   if (core.some((t) => PREPARED_FORM_TOKENS.has(t))) return false;
   return true;

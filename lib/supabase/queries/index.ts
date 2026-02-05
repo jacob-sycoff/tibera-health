@@ -18,3 +18,4 @@ export * from './symptoms';
 export * from './supplements';
 export * from './shopping';
 export * from './food-overrides';
+export * from './food-match-audits';

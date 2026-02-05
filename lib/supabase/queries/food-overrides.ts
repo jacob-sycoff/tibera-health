@@ -2,12 +2,60 @@ import { supabase } from "../client";
 import { requireAuthUserId } from "../constants";
 
 function normalizeQuery(raw: string): string {
-  return (raw || "")
+  const base = (raw || "")
     .trim()
     .toLowerCase()
+    // keep words/numbers, drop punctuation
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Strip quantity noise so overrides generalize:
+  // "steak (16 oz)" -> "steak"
+  // "3 eggs" -> "eggs"
+  // "200 g rice" -> "rice"
+  const tokens = base.split(" ").filter(Boolean);
+  const unitNoise = new Set([
+    "g",
+    "gram",
+    "grams",
+    "kg",
+    "kilogram",
+    "kilograms",
+    "oz",
+    "ounce",
+    "ounces",
+    "lb",
+    "lbs",
+    "pound",
+    "pounds",
+    "ml",
+    "milliliter",
+    "milliliters",
+    "l",
+    "liter",
+    "liters",
+    "cup",
+    "cups",
+    "tbsp",
+    "tablespoon",
+    "tablespoons",
+    "tsp",
+    "teaspoon",
+    "teaspoons",
+    "serving",
+    "servings",
+    "of",
+  ]);
+
+  const filtered = tokens.filter((t) => {
+    if (unitNoise.has(t)) return false;
+    if (/^\d+(?:\.\d+)?$/.test(t)) return false;
+    if (/^\d+\/\d+$/.test(t)) return false;
+    return true;
+  });
+
+  return filtered.join(" ").trim();
 }
 
 type OverrideRow = { fdc_id: string };
@@ -51,4 +99,3 @@ export async function upsertFoodResolutionOverride(rawQuery: string, fdcId: stri
   if (!cacheByUser.has(userId)) cacheByUser.set(userId, new Map());
   cacheByUser.get(userId)!.set(queryNorm, fdcId);
 }
-

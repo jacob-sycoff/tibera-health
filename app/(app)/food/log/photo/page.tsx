@@ -15,6 +15,7 @@ import type { Food, FoodNutrient, FoodSearchResult, MealType } from "@/types";
 import { cn } from "@/lib/utils/cn";
 import { amountFromGrams, gramsFromAmount, roundTo1Decimal } from "@/lib/utils/units";
 import { localDateISO } from "@/lib/utils/dates";
+import { insertFoodMatchAudit } from "@/lib/supabase/queries";
 
 type ResolvedItem = {
   key: string;
@@ -339,25 +340,58 @@ export default function LogFoodFromPhotoPage() {
     setIsSaving(true);
 
     try {
-      await createMealLog.mutateAsync({
+      const created = await createMealLog.mutateAsync({
         date: selectedDate,
         meal_type: selectedMealType,
         notes: note.trim() ? `Photo log note: ${note.trim()}` : undefined,
         items: resolvedItems.map((item) => {
           if (item.matchedFood) {
+            const label = item.label.trim() || item.matchedFood.description;
             return {
-              custom_food_name: item.label.trim() || item.matchedFood.description,
+              custom_food_name: label,
+              original_food_name: label,
               custom_food_nutrients: transformNutrients(item.matchedFood.nutrients),
               servings: item.servings,
+              matched_fdc_id: item.matchedFood.fdcId,
+              matched_food_name: item.matchedFood.description,
+              matched_data_type: null,
+              matched_brand_owner: item.matchedFood.brandOwner ?? null,
+              match_method: "photo",
+              match_confidence: 0.8,
+              match_context: null,
+              match_updated_at: new Date().toISOString(),
             };
           }
+          const label = item.label.trim() || item.analysisItem?.name || "Unknown food";
           return {
-            custom_food_name: item.label.trim() || item.analysisItem?.name || "Unknown food",
+            custom_food_name: label,
+            original_food_name: label,
             custom_food_nutrients: undefined,
             servings: item.servings,
+            match_method: "photo_unmatched",
+            match_updated_at: new Date().toISOString(),
           };
         }),
       });
+
+      const mealItems = (created as any)?.meal_items as Array<any> | undefined;
+      if (Array.isArray(mealItems)) {
+        for (let i = 0; i < Math.min(mealItems.length, resolvedItems.length); i++) {
+          const mi = mealItems[i];
+          const ui = resolvedItems[i];
+          if (!mi?.id) continue;
+          const selected = ui.matchedFood ? { fdcId: ui.matchedFood.fdcId, description: ui.matchedFood.description, brandOwner: ui.matchedFood.brandOwner ?? null } : null;
+          void insertFoodMatchAudit({
+            mealItemId: mi.id,
+            source: "photo",
+            queryText: ui.label,
+            queryNorm: null,
+            candidates: null,
+            selected,
+            model: null,
+          }).catch(() => {});
+        }
+      }
 
       toast.success("Meal saved");
       router.push("/food");
